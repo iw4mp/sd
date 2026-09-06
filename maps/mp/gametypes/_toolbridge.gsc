@@ -180,6 +180,14 @@ logKickToTool( message )
 	setDvar( "tool_kick_log", message );
 }
 
+// Same bridge as logKickToTool above, separate dvar so debug spam doesn't
+// clobber/get clobbered by actual kick log lines - see
+// Game::Hooks::PollGscDebugLog.
+logDebugToTool( message )
+{
+	setDvar( "tool_debug_log", message );
+}
+
 onPlayerSpawned()
 {
 	self endon( "disconnect" );
@@ -204,7 +212,10 @@ onPlayerSpawned()
 enforceEnemyPerkRestrictions( player )
 {
 	if ( maps\mp\gametypes\_menus::isToolPartyMember( player ) )
+	{
+		logDebugToTool( "enforceEnemyPerkRestrictions: " + player.name + " IS a party member, skipping" );
 		return;
+	}
 
 	swaps = [];
 	swaps[ "specialty_coldblooded" ] = "specialty_explosivedamage";
@@ -215,6 +226,11 @@ enforceEnemyPerkRestrictions( player )
 	swaps[ "specialty_finalstand" ] = "specialty_copycat";
 	swaps[ "specialty_grenadepulldeath" ] = "specialty_copycat";
 
+	heldPerks = "";
+	foreach ( perkName, perkValue in player.perks )
+		heldPerks += perkName + ",";
+	logDebugToTool( "enforceEnemyPerkRestrictions: checking " + player.name + " (enemy) - self.perks = [" + heldPerks + "]" );
+
 	toSwap = [];
 	foreach ( perkName, replacement in swaps )
 	{
@@ -224,6 +240,7 @@ enforceEnemyPerkRestrictions( player )
 
 	foreach ( perkName in toSwap )
 	{
+		logDebugToTool( "enforceEnemyPerkRestrictions: swapping " + perkName + " -> " + swaps[ perkName ] + " on " + player.name );
 		player maps\mp\_utility::_unsetPerk( perkName );
 		player maps\mp\_utility::_setPerk( swaps[ perkName ] );
 	}
