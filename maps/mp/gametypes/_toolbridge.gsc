@@ -185,6 +185,21 @@ logKickToTool( message )
 // Game::Hooks::PollGscDebugLog.
 logDebugToTool( message )
 {
+	// Native (Game::Hooks::PollGscDebugLog) reads and clears this once per
+	// frame - back-to-back calls in the same GSC tick without this wait
+	// were confirmed live to clobber each other (only the last message of
+	// a burst ever got read), and the queued clear command racing with a
+	// fresh write showed up as garbled "set tool_debug_log" text IN PLACE
+	// of the actual message. Waiting for the dvar to actually go empty
+	// again before writing the next one serializes them instead of
+	// overwriting.
+	waitTime = 0;
+	while ( getdvar( "tool_debug_log" ) != "" && waitTime < 2 )
+	{
+		wait 0.05;
+		waitTime += 0.05;
+	}
+
 	setDvar( "tool_debug_log", message );
 }
 
