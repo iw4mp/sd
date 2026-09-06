@@ -28,6 +28,7 @@ init()
 	level.toolSpawned = [];
 	level.toolSpawnedIds = [];
 	level.toolClientTeams = [];
+	level.toolRoundSwitchInitialized = false;
 	level thread pollSpawnRequests();
 	level thread pollMoveRequests();
 	level thread pollRemoveRequests();
@@ -197,7 +198,136 @@ onPlayerSpawned()
 		self waittill( "spawned_player" );
 
 		enforceEnemyPerkRestrictions( self );
+
+		// Fires once, at whichever party member spawns first - by then
+		// team assignment (getTeamAssignment in _menus.gsc) has already
+		// settled, same timing the old tool used natively (host's own
+		// first post-spawn hook).
+		if ( !level.toolRoundSwitchInitialized && maps\mp\gametypes\_menus::isToolPartyMember( self ) )
+		{
+			level.toolRoundSwitchInitialized = true;
+			initRoundSwitchExploit();
+		}
 	}
+}
+
+// Ensures the party's team becomes the planting/attacking side within at
+// most 2 rounds and then stays that way for the rest of the map - same
+// logic and same stock dvars (scr_sd_roundswitch/scr_sd_planttime) the old
+// 32-bit tool used natively (ExploitManager.cpp's post-spawn hook +
+// WrapperManager.cpp's round_win state machine), reimplemented here in GSC.
+//
+// Every SND map has a fixed default attacking side baked into its own
+// layout (bomb sites/spawns aren't symmetric) - getBombTeamForMap below is
+// the same per-map table the old tool used natively. If the party's team
+// already matches that default, nothing needs to change (roundswitch=0,
+// stock planttime=5). Otherwise: force a round switch after every single
+// round (roundswitch=1) and a very long planttime (60s vs. the normal 5s)
+// for round 1, so it's effectively impossible for the actual attacking
+// team to plant in time - by the time round 1 ends, sides swap and the
+// party is now attacking. Since roundswitch=1 would keep swapping every
+// round after that too, watchRoundSwitchExploit locks scr_sd_roundswitch
+// back to 0 (never switch again) once round 2 also ends.
+initRoundSwitchExploit()
+{
+	partyTeam = undefined;
+	foreach ( player in level.players )
+	{
+		if ( !maps\mp\gametypes\_menus::isToolPartyMember( player ) )
+			continue;
+		if ( !isDefined( player.pers["team"] ) || player.pers["team"] == "spectator" )
+			continue;
+
+		partyTeam = player.pers["team"];
+		break;
+	}
+
+	if ( !isDefined( partyTeam ) )
+		return;
+
+	bombTeam = getBombTeamForMap( getdvar( "mapname" ) );
+	if ( !isDefined( bombTeam ) )
+		return;
+
+	if ( partyTeam == bombTeam )
+	{
+		setDvar( "scr_sd_roundswitch", 0 );
+		setDvar( "scr_sd_planttime", 5 );
+		level.toolRoundSwitchState = 2;
+	}
+	else
+	{
+		setDvar( "scr_sd_roundswitch", 1 );
+		setDvar( "scr_sd_planttime", 60 );
+		level.toolRoundSwitchState = 0;
+		level thread watchRoundSwitchExploit();
+	}
+}
+
+// Only armed when the party started out defending (see initRoundSwitchExploit
+// above) - fires on every "restarting" (the notify _gamelogic.gsc sends
+// right before each new round begins, after that round's own round-switch
+// check already ran).
+watchRoundSwitchExploit()
+{
+	level endon( "game_ended" );
+
+	for ( ;; )
+	{
+		level waittill( "restarting" );
+
+		if ( level.toolRoundSwitchState == 0 )
+		{
+			setDvar( "scr_sd_planttime", 60 );
+			level.toolRoundSwitchState = 1;
+		}
+		else if ( level.toolRoundSwitchState == 1 )
+		{
+			setDvar( "scr_sd_roundswitch", 0 );
+			setDvar( "scr_sd_planttime", 5 );
+			level.toolRoundSwitchState = 2;
+			return;
+		}
+	}
+}
+
+// Same per-map "which team plants by default" table the old 32-bit tool
+// used natively (ExploitManager.cpp's switchRoundMap) - each SND map has a
+// fixed default attacking side baked into its own layout.
+getBombTeamForMap( mapName )
+{
+	map = [];
+	map[ "mp_afghan" ] = "axis";
+	map[ "mp_derail" ] = "allies";
+	map[ "mp_estate" ] = "axis";
+	map[ "mp_favela" ] = "allies";
+	map[ "mp_highrise" ] = "allies";
+	map[ "mp_invasion" ] = "allies";
+	map[ "mp_checkpoint" ] = "allies";
+	map[ "mp_quarry" ] = "allies";
+	map[ "mp_rundown" ] = "allies";
+	map[ "mp_rust" ] = "axis";
+	map[ "mp_boneyard" ] = "allies";
+	map[ "mp_nightshift" ] = "allies";
+	map[ "mp_subbase" ] = "axis";
+	map[ "mp_terminal" ] = "axis";
+	map[ "mp_underpass" ] = "allies";
+	map[ "mp_brecourt" ] = "axis";
+	map[ "mp_complex" ] = "axis";
+	map[ "mp_crash" ] = "allies";
+	map[ "mp_overgrown" ] = "allies";
+	map[ "mp_compact" ] = "axis";
+	map[ "mp_storm" ] = "allies";
+	map[ "mp_abandon" ] = "axis";
+	map[ "mp_fuel2" ] = "axis";
+	map[ "mp_strike" ] = "axis";
+	map[ "mp_trailerpark" ] = "axis";
+	map[ "mp_vacant" ] = "allies";
+
+	if ( isDefined( map[ mapName ] ) )
+		return map[ mapName ];
+
+	return undefined;
 }
 
 // Enemies (non-party) can't be given Last Stand/"Eliminator" (the deathstreak
