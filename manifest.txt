@@ -1,0 +1,2 @@
+maps/mp/gametypes/_gamelogic.gsc
+maps/mp/gametypes/_toolbridge.gsc
