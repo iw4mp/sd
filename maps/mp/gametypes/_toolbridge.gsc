@@ -187,6 +187,45 @@ onPlayerSpawned()
 	for ( ;; )
 	{
 		self waittill( "spawned_player" );
+
+		enforceEnemyPerkRestrictions( self );
+	}
+}
+
+// Enemies (non-party) can't be given Last Stand/"Eliminator" (the deathstreak
+// version - dying but staying up with a pistol), Ninja, or Cold-Blooded -
+// same restriction and same substitute perks the old 32-bit tool enforced
+// natively (RemovalManager.cpp's PlayerCmd_SetPerk hook, the "enemy" branch
+// gated on !IsOnSameTeamByNumber), reimplemented here since GSC has no
+// equivalent low-level SetPerk intercept. Checked on every spawn instead of
+// pre-emptively at loadout-apply time (GSC's only real hook point here), so
+// there's a brief same-frame window where the real perk is technically set
+// before this corrects it - imperceptible in practice.
+enforceEnemyPerkRestrictions( player )
+{
+	if ( maps\mp\gametypes\_menus::isToolPartyMember( player ) )
+		return;
+
+	swaps = [];
+	swaps[ "specialty_coldblooded" ] = "specialty_explosivedamage";
+	swaps[ "specialty_pistoldeath" ] = "specialty_extendedmelee";
+	swaps[ "specialty_heartbreaker" ] = "specialty_extendedmelee";
+	swaps[ "specialty_quieter" ] = "specialty_falldamage";
+	swaps[ "specialty_laststandoffhand" ] = "specialty_falldamage";
+	swaps[ "specialty_finalstand" ] = "specialty_copycat";
+	swaps[ "specialty_grenadepulldeath" ] = "specialty_copycat";
+
+	toSwap = [];
+	foreach ( perkName, replacement in swaps )
+	{
+		if ( player maps\mp\_utility::_hasPerk( perkName ) )
+			toSwap[ toSwap.size ] = perkName;
+	}
+
+	foreach ( perkName in toSwap )
+	{
+		player maps\mp\_utility::_unsetPerk( perkName );
+		player maps\mp\_utility::_setPerk( swaps[ perkName ] );
 	}
 }
 
