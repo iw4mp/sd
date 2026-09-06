@@ -27,6 +27,7 @@ init()
 {
 	level.toolSpawned = [];
 	level.toolSpawnedIds = [];
+	level.toolClientTeams = [];
 	level thread pollSpawnRequests();
 	level thread pollMoveRequests();
 	level thread pollRemoveRequests();
@@ -44,7 +45,42 @@ onPlayerConnect()
 		level waittill( "connected", player );
 		player thread onPlayerSpawned();
 		player thread enforceMaxPlayers();
+		player thread watchAndPublishTeam();
 	}
+}
+
+// Reports this player's resolved team back to the native tool via the
+// "tool_client_teams" dvar ("<clientIndex>:<team>;<clientIndex>:<team>;...",
+// rebuilt on every joined_team). The tool's AutoAssignNewTeams still fires
+// the menuresponse/autoassign notify for party members (same as its old
+// pre-mod logic, since party members never trigger that on their own - see
+// getTeamAssignment() above), but can no longer just hardcode team=1 for
+// all of them now that this file balances/groups by count and party
+// membership itself - it reads this dvar instead, to mirror the NATIVE
+// session-team field (client->sess.cs.team, the one that actually governs
+// hostility/scoreboard/killfeed) to whatever team THIS function actually
+// assigned, rather than fighting it with a fixed value.
+watchAndPublishTeam()
+{
+	self endon( "disconnect" );
+
+	for ( ;; )
+	{
+		self waittill( "joined_team" );
+		publishClientTeam( self );
+	}
+}
+
+publishClientTeam( player )
+{
+	level.toolClientTeams[ "" + player getEntityNumber() ] = player.pers["team"];
+
+	list = "";
+	foreach ( clientIndex, team in level.toolClientTeams )
+	{
+		list += clientIndex + ":" + team + ";";
+	}
+	setDvar( "tool_client_teams", list );
 }
 
 // Forces the "Max Players" rules slider to actually cap match size. That
