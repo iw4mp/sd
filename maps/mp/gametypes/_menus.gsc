@@ -247,6 +247,28 @@ getTeamAssignment()
 	// such lobby to populate sessionteam meaningfully, so trusting it here
 	// was landing new joiners on a near-arbitrary team instead of the
 	// numerically smaller one, causing persistent team-size imbalance.
+
+	// Party-aware: the native tool tells us who's in the local Steam party
+	// via "tool_party_clients" (a comma-separated list of client entity
+	// numbers - see PublishPartyClientsDvar in the tool's GameHooks.cpp),
+	// since GSC has no other way to see that. If this connecting player is
+	// a party member and another party member already has a team, join
+	// them there instead of running the count-based balance below -
+	// otherwise a whole party force-starting together at the same instant
+	// just gets split evenly across both teams by pure count, confirmed
+	// live. Non-party players are unaffected and still balance by count.
+	if ( isToolPartyMember( self ) )
+	{
+		foreach ( player in level.players )
+		{
+			if ( player == self )
+				continue;
+
+			if ( isDefined( player.pers["team"] ) && player.pers["team"] != "spectator" && isToolPartyMember( player ) )
+				return player.pers["team"];
+		}
+	}
+
 	playerCounts = self maps\mp\gametypes\_teams::CountPlayers();
 
 	// if teams are equal return the team with the lowest score
@@ -269,6 +291,28 @@ getTeamAssignment()
 	}
 
 	return assignment;
+}
+
+
+// True if `player` is one of the local Steam party's real members, per the
+// native tool's "tool_party_clients" dvar (comma-separated client entity
+// numbers, refreshed every frame by PublishPartyClientsDvar in the tool's
+// GameHooks.cpp - only published while a mod is active, empty otherwise).
+isToolPartyMember( player )
+{
+	partyList = getDvar( "tool_party_clients" );
+	if ( partyList == "" )
+		return false;
+
+	clientIndex = player getEntityNumber();
+	tokens = strtok( partyList, "," );
+	foreach ( token in tokens )
+	{
+		if ( int( token ) == clientIndex )
+			return true;
+	}
+
+	return false;
 }
 
 
