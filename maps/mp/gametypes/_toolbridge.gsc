@@ -43,7 +43,26 @@ onPlayerConnect()
 	{
 		level waittill( "connected", player );
 		player thread onPlayerSpawned();
+		player thread enforceMaxPlayers();
 	}
+}
+
+// Forces the "Max Players" rules slider to actually cap match size. That
+// slider only ever writes ui_maxplayers/party_maxplayers/sv_maxplayers -
+// ui_maxplayers just feeds the local scoreboard's cosmetic slot count
+// (maps\mp\_scoreboard.gsc), none of the three actually stop this build's
+// Steam connect flow from accepting more players. GSC can't refuse a
+// connection outright (that's decided natively before this even runs), so
+// this is a post-connect kick: whoever just pushed the server over
+// party_maxplayers gets removed immediately.
+enforceMaxPlayers()
+{
+	maxPlayers = getDvarInt( "party_maxplayers" );
+	if ( !maxPlayers )
+		return;
+
+	if ( level.players.size > maxPlayers )
+		kick( self getEntityNumber(), "Server is full" );
 }
 
 onPlayerSpawned()
