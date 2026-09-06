@@ -72,8 +72,6 @@ onPlayerSpawned()
 	for ( ;; )
 	{
 		self waittill( "spawned_player" );
-
-		self thread maps\mp\gametypes\_hud_message::hintMessage( "^2Vertu SND Loaded" );
 	}
 }
 
