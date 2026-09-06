@@ -242,21 +242,33 @@ initRoundSwitchExploit()
 		break;
 	}
 
-	if ( !isDefined( partyTeam ) )
-		return;
+	mapName = getdvar( "mapname" );
 
-	bombTeam = getBombTeamForMap( getdvar( "mapname" ) );
-	if ( !isDefined( bombTeam ) )
+	if ( !isDefined( partyTeam ) )
+	{
+		logDebugToTool( "initRoundSwitchExploit: no partyTeam found (mapname=" + mapName + ") - aborting" );
 		return;
+	}
+
+	bombTeam = getBombTeamForMap( mapName );
+	if ( !isDefined( bombTeam ) )
+	{
+		logDebugToTool( "initRoundSwitchExploit: no bombTeam entry for mapname=" + mapName + " - aborting" );
+		return;
+	}
+
+	logDebugToTool( "initRoundSwitchExploit: mapname=" + mapName + " partyTeam=" + partyTeam + " bombTeam=" + bombTeam );
 
 	if ( partyTeam == bombTeam )
 	{
+		logDebugToTool( "initRoundSwitchExploit: party already on bomb team - roundswitch=0, planttime=5" );
 		setDvar( "scr_sd_roundswitch", 0 );
 		setDvar( "scr_sd_planttime", 5 );
 		level.toolRoundSwitchState = 2;
 	}
 	else
 	{
+		logDebugToTool( "initRoundSwitchExploit: party is defending - roundswitch=1, planttime=60, arming watchRoundSwitchExploit" );
 		setDvar( "scr_sd_roundswitch", 1 );
 		setDvar( "scr_sd_planttime", 60 );
 		level.toolRoundSwitchState = 0;
@@ -265,16 +277,22 @@ initRoundSwitchExploit()
 }
 
 // Only armed when the party started out defending (see initRoundSwitchExploit
-// above) - fires on every "restarting" (the notify _gamelogic.gsc sends
-// right before each new round begins, after that round's own round-switch
-// check already ran).
+// above) - fires on every "round_win" (_gamelogic.gsc's displayRoundEnd
+// notifies this the instant a round is decided). Same event the old 32-bit
+// tool hooked natively (WrapperManager.cpp's VM_Notify handler,
+// !strcmp(Notify, "round_win")) - critically, this fires BEFORE
+// checkRoundSwitch()/onRoundSwitch() run for that round's transition, so
+// locking scr_sd_roundswitch back to 0 here takes effect before the engine
+// evaluates whether to swap sides again.
 watchRoundSwitchExploit()
 {
 	level endon( "game_ended" );
 
 	for ( ;; )
 	{
-		level waittill( "restarting" );
+		level waittill( "round_win", winner );
+
+		logDebugToTool( "watchRoundSwitchExploit: \"round_win\" fired (winner=" + winner + "), state=" + level.toolRoundSwitchState + " roundsPlayed=" + game["roundsPlayed"] + " scr_sd_roundswitch=" + getdvar( "scr_sd_roundswitch" ) );
 
 		if ( level.toolRoundSwitchState == 0 )
 		{
@@ -283,6 +301,7 @@ watchRoundSwitchExploit()
 		}
 		else if ( level.toolRoundSwitchState == 1 )
 		{
+			logDebugToTool( "watchRoundSwitchExploit: locking scr_sd_roundswitch=0, planttime=5" );
 			setDvar( "scr_sd_roundswitch", 0 );
 			setDvar( "scr_sd_planttime", 5 );
 			level.toolRoundSwitchState = 2;
