@@ -80,7 +80,7 @@ autoKickNonPartyTeammates()
 				continue;
 
 			logKickToTool( "autoKickNonPartyTeammates: kicking " + player.name + " (client " + player getEntityNumber() + ") - not a party member on team " + partyTeam );
-			kick( player getEntityNumber(), "EXE_PLAYERKICKED_INACTIVE" );
+			kick( player getEntityNumber(), "EXE_SERVERISFULL" );
 			break;
 		}
 	}
