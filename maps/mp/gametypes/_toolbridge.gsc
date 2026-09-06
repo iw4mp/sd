@@ -79,6 +79,7 @@ autoKickNonPartyTeammates()
 			if ( !isDefined( player.pers["team"] ) || player.pers["team"] != partyTeam )
 				continue;
 
+			logKickToTool( "autoKickNonPartyTeammates: kicking " + player.name + " (client " + player getEntityNumber() + ") - not a party member on team " + partyTeam );
 			kick( player getEntityNumber(), "EXE_PLAYERKICKED_INACTIVE" );
 			break;
 		}
@@ -162,7 +163,21 @@ enforceMaxPlayers()
 		return;
 
 	if ( level.players.size > maxPlayers )
+	{
+		logKickToTool( "enforceMaxPlayers: kicking " + self.name + " (client " + self getEntityNumber() + ") - " + level.players.size + " players > max " + maxPlayers );
 		kick( self getEntityNumber(), "EXE_SERVERISFULL" );
+	}
+}
+
+// println()/print() only reach the GAME ENGINE's own server console, not
+// the tool's separate AllocConsole() window (the same reason HkEnginePrint
+// had to be hooked just to surface the GSC compile-error message there) -
+// this instead publishes the message via "tool_kick_log", which the tool
+// polls and printf()s every frame (see Game::Hooks::PollGscKickLog),
+// clearing it back to "" once read so the same message doesn't repeat.
+logKickToTool( message )
+{
+	setDvar( "tool_kick_log", message );
 }
 
 onPlayerSpawned()
