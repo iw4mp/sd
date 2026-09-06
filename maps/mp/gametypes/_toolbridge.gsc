@@ -83,22 +83,25 @@ publishClientTeam( player )
 	setDvar( "tool_client_teams", list );
 }
 
-// Forces the "Max Players" rules slider to actually cap match size. That
-// slider only ever writes ui_maxplayers/party_maxplayers/sv_maxplayers -
-// ui_maxplayers just feeds the local scoreboard's cosmetic slot count
+// Actually caps match size, unlike the game's own "Max Players" rules
+// slider (ui_maxplayers/party_maxplayers/sv_maxplayers) - ui_maxplayers
+// just feeds the local scoreboard's cosmetic slot count
 // (maps\mp\_scoreboard.gsc), none of the three actually stop this build's
 // Steam connect flow from accepting more players. GSC can't refuse a
 // connection outright (that's decided natively before this even runs), so
-// this is a post-connect kick: whoever just pushed the server over
-// party_maxplayers gets removed immediately.
+// this is a post-connect kick: whoever just pushed the server over the
+// tool's own dedicated "tool_max_players" dvar (a separate slider in the
+// tool's UI - see Game::Hooks::ApplyGscMaxPlayersChange - that talks
+// directly to this mod instead of the game's broken one) gets removed
+// immediately.
 enforceMaxPlayers()
 {
-	maxPlayers = getDvarInt( "party_maxplayers" );
+	maxPlayers = getDvarInt( "tool_max_players" );
 	if ( !maxPlayers )
 		return;
 
 	if ( level.players.size > maxPlayers )
-		kick( self getEntityNumber(), "Server is full" );
+		kick( self getEntityNumber(), "EXE_SERVERISFULL" );
 }
 
 onPlayerSpawned()
