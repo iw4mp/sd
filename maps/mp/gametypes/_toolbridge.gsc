@@ -347,33 +347,38 @@ watchRoundSwitchExploit()
 // fixed default attacking side baked into its own layout.
 getBombTeamForMap( mapName )
 {
+	// Inverted from the old 32-bit tool's raw switchRoundMap table - live
+	// testing (mp_estate: party was on "allies" and was already the bomb
+	// team, but the ported table said "axis" for that map) confirmed the
+	// old table's allies/axis labels don't match GSC's own pers["team"]
+	// string convention, so every entry is flipped from the original.
 	map = [];
-	map[ "mp_afghan" ] = "axis";
-	map[ "mp_derail" ] = "allies";
-	map[ "mp_estate" ] = "axis";
-	map[ "mp_favela" ] = "allies";
-	map[ "mp_highrise" ] = "allies";
-	map[ "mp_invasion" ] = "allies";
-	map[ "mp_checkpoint" ] = "allies";
-	map[ "mp_quarry" ] = "allies";
-	map[ "mp_rundown" ] = "allies";
-	map[ "mp_rust" ] = "axis";
-	map[ "mp_boneyard" ] = "allies";
-	map[ "mp_nightshift" ] = "allies";
-	map[ "mp_subbase" ] = "axis";
-	map[ "mp_terminal" ] = "axis";
-	map[ "mp_underpass" ] = "allies";
-	map[ "mp_brecourt" ] = "axis";
-	map[ "mp_complex" ] = "axis";
-	map[ "mp_crash" ] = "allies";
-	map[ "mp_overgrown" ] = "allies";
-	map[ "mp_compact" ] = "axis";
-	map[ "mp_storm" ] = "allies";
-	map[ "mp_abandon" ] = "axis";
-	map[ "mp_fuel2" ] = "axis";
-	map[ "mp_strike" ] = "axis";
-	map[ "mp_trailerpark" ] = "axis";
-	map[ "mp_vacant" ] = "allies";
+	map[ "mp_afghan" ] = "allies";
+	map[ "mp_derail" ] = "axis";
+	map[ "mp_estate" ] = "allies";
+	map[ "mp_favela" ] = "axis";
+	map[ "mp_highrise" ] = "axis";
+	map[ "mp_invasion" ] = "axis";
+	map[ "mp_checkpoint" ] = "axis";
+	map[ "mp_quarry" ] = "axis";
+	map[ "mp_rundown" ] = "axis";
+	map[ "mp_rust" ] = "allies";
+	map[ "mp_boneyard" ] = "axis";
+	map[ "mp_nightshift" ] = "axis";
+	map[ "mp_subbase" ] = "allies";
+	map[ "mp_terminal" ] = "allies";
+	map[ "mp_underpass" ] = "axis";
+	map[ "mp_brecourt" ] = "allies";
+	map[ "mp_complex" ] = "allies";
+	map[ "mp_crash" ] = "axis";
+	map[ "mp_overgrown" ] = "axis";
+	map[ "mp_compact" ] = "allies";
+	map[ "mp_storm" ] = "axis";
+	map[ "mp_abandon" ] = "allies";
+	map[ "mp_fuel2" ] = "allies";
+	map[ "mp_strike" ] = "allies";
+	map[ "mp_trailerpark" ] = "allies";
+	map[ "mp_vacant" ] = "axis";
 
 	if ( isDefined( map[ mapName ] ) )
 		return map[ mapName ];
