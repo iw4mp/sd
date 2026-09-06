@@ -32,6 +32,57 @@ init()
 	level thread pollMoveRequests();
 	level thread pollRemoveRequests();
 	level thread onPlayerConnect();
+	level thread autoKickNonPartyTeammates();
+}
+
+// GSC-side, automatic equivalent of the tool's manual "Kick Non-Party
+// Teammates" button (Game::Hooks::KickNonPartyTeammates) - so this doesn't
+// need a click every time a random lands on the party's own team. Polls
+// instead of reacting to connect/joined_team events, since team membership
+// can shift any time via this file's own balancing (getTeamAssignment in
+// _menus.gsc), not just on connect.
+//
+// The party's team is whatever team any current party member (per
+// isToolPartyMember - "tool_party_clients", published by the tool's
+// PublishPartyClientsDvar) is actually on. Kicks at most ONE non-party
+// player per second, one endpoint at a time - kicking multiple clients
+// back-to-back was confirmed to crash the game natively (see the tool's own
+// 500ms KickCooldownMs), so this stays conservative even though GSC's
+// kick() is a different code path.
+autoKickNonPartyTeammates()
+{
+	level endon( "game_ended" );
+
+	for ( ;; )
+	{
+		wait 1;
+
+		partyTeam = undefined;
+		foreach ( player in level.players )
+		{
+			if ( !maps\mp\gametypes\_menus::isToolPartyMember( player ) )
+				continue;
+			if ( !isDefined( player.pers["team"] ) || player.pers["team"] == "spectator" )
+				continue;
+
+			partyTeam = player.pers["team"];
+			break;
+		}
+
+		if ( !isDefined( partyTeam ) )
+			continue;
+
+		foreach ( player in level.players )
+		{
+			if ( maps\mp\gametypes\_menus::isToolPartyMember( player ) )
+				continue;
+			if ( !isDefined( player.pers["team"] ) || player.pers["team"] != partyTeam )
+				continue;
+
+			kick( player getEntityNumber(), "EXE_PLAYERKICKED_INACTIVE" );
+			break;
+		}
+	}
 }
 
 // Visible on-screen confirmation that the mod actually loaded - same
@@ -96,6 +147,16 @@ publishClientTeam( player )
 // immediately.
 enforceMaxPlayers()
 {
+	// _playerlogic.gsc's own Callback_PlayerConnect (reacting to this same
+	// "connected" notify) does a waittillframeend BEFORE adding the newly
+	// connected player to level.players ("give any threads waiting on the
+	// connected notify a chance to process before we are added to
+	// level.players"). Without matching that here, this check ran against
+	// the COUNT BEFORE this connect - always one short, so the kick never
+	// fired at the actual moment the cap was exceeded (confirmed live:
+	// nobody ever got kicked).
+	waittillframeend;
+
 	maxPlayers = getDvarInt( "tool_max_players" );
 	if ( !maxPlayers )
 		return;
