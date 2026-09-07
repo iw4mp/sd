@@ -31,6 +31,7 @@ init()
 	level thread pollSpawnRequests();
 	level thread pollMoveRequests();
 	level thread pollRemoveRequests();
+	level thread pollMapSwitchRequests();
 	level thread onPlayerConnect();
 	level thread autoKickNonPartyTeammates();
 }
@@ -505,6 +506,38 @@ pollRemoveRequests()
 		level.toolSpawned[ key ] = undefined;
 
 		updateSpawnedListDvar();
+	}
+}
+
+// Tool's "Switch Map" button sets tool_map_switch_target (e.g. "mp_estate")
+// then tool_map_switch_requested "1" as a trigger. ui_mapname alone (the
+// old 32-bit tool's approach) is just a UI-display dvar - it doesn't
+// actually change the running match's map - so the real switch has to
+// happen from GSC: stash the desired map into sv_mapRotationCurrent (the
+// dvar the engine's rotation-advance logic reads to pick the next map),
+// then call exitLevel(), the same built-in the stock gametype itself uses
+// to end a match (see _gamelogic.gsc's own "exitLevel_called" notify +
+// exitLevel(false) at a real match end).
+pollMapSwitchRequests()
+{
+	level endon( "game_ended" );
+
+	while ( 1 )
+	{
+		wait 0.1;
+
+		if ( getDvar( "tool_map_switch_requested" ) != "1" )
+			continue;
+
+		setDvar( "tool_map_switch_requested", "0" );
+
+		targetMap = getDvar( "tool_map_switch_target" );
+		if ( targetMap == "" )
+			continue;
+
+		logDebugToTool( "pollMapSwitchRequests: switching to " + targetMap );
+		setDvar( "sv_mapRotationCurrent", "gametype " + level.gameType + " map " + targetMap );
+		exitLevel( false );
 	}
 }
 
