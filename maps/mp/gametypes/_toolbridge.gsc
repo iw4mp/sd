@@ -81,7 +81,7 @@ autoKickNonPartyTeammates()
 				continue;
 
 			logKickToTool( "autoKickNonPartyTeammates: kicking " + player.name + " (client " + player getEntityNumber() + ") - not a party member on team " + partyTeam );
-			kick( player getEntityNumber(), "EXE_SERVERISFULL" );
+			kick( player getEntityNumber() );
 			break;
 		}
 	}
@@ -166,7 +166,7 @@ enforceMaxPlayers()
 	if ( level.players.size > maxPlayers )
 	{
 		logKickToTool( "enforceMaxPlayers: kicking " + self.name + " (client " + self getEntityNumber() + ") - " + level.players.size + " players > max " + maxPlayers );
-		kick( self getEntityNumber(), "EXE_SERVERISFULL" );
+		kick( self getEntityNumber() );
 	}
 }
 
