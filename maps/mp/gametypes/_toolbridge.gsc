@@ -214,56 +214,34 @@ onPlayerSpawned()
 		enforceEnemyPerkRestrictions( self );
 
 		if ( maps\mp\gametypes\_menus::isToolPartyMember( self ) )
-			ensureRoundSwitchExploitArmed();
+			enforcePartyIsPlantTeam();
 	}
 }
 
-// Ensures the party's team becomes the planting/attacking side within at
-// most 2 rounds and then stays that way for the rest of the map - same
-// logic and same stock dvars (scr_sd_roundswitch/scr_sd_planttime) the old
-// 32-bit tool used natively (ExploitManager.cpp's post-spawn hook +
-// WrapperManager.cpp's round_win state machine), reimplemented here in GSC.
-//
-// Called on every party member spawn, every round. map_restart (fired on
-// every round transition, not just a real map change) resets level.xxx
-// state and kills any level-threads - the same reason the stock gametype
-// tracks game["roundsPlayed"] instead of level.roundsPlayed. So the
-// decision itself (decideRoundSwitchExploit) is made exactly once per
-// match and persisted in game[], which survives round transitions, while
-// the watcher thread below is deliberately re-created every round (its
-// predecessor from the previous round is already gone either way) until
-// the exploit reaches its terminal state. level.toolRoundSwitchArmed
-// (level.xxx - fine that it resets every round) just stops more than one
-// party member's spawn from re-threading the watcher in the same round.
-ensureRoundSwitchExploitArmed()
+// Makes sure the party's team is always the planting/attacking side -
+// direct state manipulation instead of the scr_sd_roundswitch/
+// scr_sd_planttime dvar dance. checkRoundSwitch() (_gamelogic.gsc) reads
+// level.roundSwitch, not the dvar, so a setDvar() write could silently not
+// take effect depending on when that field gets cached - writing the field
+// itself sidesteps that entirely. level.xxx resets on every round
+// transition (map_restart fires every round, not just on a real map
+// change), so level.roundSwitch has to be re-zeroed on every spawn, not
+// just once - but the actual "who's currently attacking" decision
+// (game["switchedsides"], the same field the engine's own onRoundSwitch()
+// toggles) lives in game[], which survives round restarts, so that part is
+// only ever decided once per match.
+enforcePartyIsPlantTeam()
 {
-	if ( !isDefined( game["toolRoundSwitchState"] ) )
-		decideRoundSwitchExploit();
+	// Reasserted every spawn (i.e. every round) since level.xxx doesn't
+	// survive a round restart - keeps the engine from ever switching sides
+	// again once we've settled on one, regardless of whatever value
+	// round-init would otherwise have cached here.
+	level.roundSwitch = 0;
 
-	if ( level.toolRoundSwitchArmed )
+	if ( isDefined( game["toolPlantTeamDecided"] ) )
 		return;
+	game["toolPlantTeamDecided"] = true;
 
-	if ( game["toolRoundSwitchState"] == 0 || game["toolRoundSwitchState"] == 1 )
-	{
-		level.toolRoundSwitchArmed = true;
-		level thread watchRoundSwitchExploit();
-	}
-}
-
-// Every SND map has a fixed default attacking side baked into its own
-// layout (bomb sites/spawns aren't symmetric) - getBombTeamForMap below is
-// the same per-map table the old tool used natively. If the party's team
-// already matches that default, nothing needs to change (roundswitch=0,
-// stock planttime=5) and the exploit is immediately done. Otherwise: force
-// a round switch after every single round (roundswitch=1) and a very long
-// planttime (60s vs. the normal 5s) for round 1, so it's effectively
-// impossible for the actual attacking team to plant in time - by the time
-// round 1 ends, sides swap and the party is now attacking. Since
-// roundswitch=1 would keep swapping every round after that too,
-// watchRoundSwitchExploit locks scr_sd_roundswitch back to 0 (never switch
-// again) once round 2 also ends.
-decideRoundSwitchExploit()
-{
 	partyTeam = undefined;
 	foreach ( player in level.players )
 	{
@@ -280,66 +258,30 @@ decideRoundSwitchExploit()
 
 	if ( !isDefined( partyTeam ) )
 	{
-		logDebugToTool( "decideRoundSwitchExploit: no partyTeam found (mapname=" + mapName + ") - aborting" );
-		game["toolRoundSwitchState"] = 2;
+		logDebugToTool( "enforcePartyIsPlantTeam: no partyTeam found (mapname=" + mapName + ") - aborting" );
 		return;
 	}
 
 	bombTeam = getBombTeamForMap( mapName );
 	if ( !isDefined( bombTeam ) )
 	{
-		logDebugToTool( "decideRoundSwitchExploit: no bombTeam entry for mapname=" + mapName + " - aborting" );
-		game["toolRoundSwitchState"] = 2;
+		logDebugToTool( "enforcePartyIsPlantTeam: no bombTeam entry for mapname=" + mapName + " - aborting" );
 		return;
 	}
 
-	logDebugToTool( "decideRoundSwitchExploit: mapname=" + mapName + " partyTeam=" + partyTeam + " bombTeam=" + bombTeam );
+	logDebugToTool( "enforcePartyIsPlantTeam: mapname=" + mapName + " partyTeam=" + partyTeam + " bombTeam=" + bombTeam );
 
 	if ( partyTeam == bombTeam )
 	{
-		logDebugToTool( "decideRoundSwitchExploit: party already on bomb team - roundswitch=0, planttime=5" );
-		setDvar( "scr_sd_roundswitch", 0 );
-		setDvar( "scr_sd_planttime", 5 );
-		game["toolRoundSwitchState"] = 2;
+		logDebugToTool( "enforcePartyIsPlantTeam: party already on plant team - nothing to do" );
+		return;
 	}
-	else
-	{
-		logDebugToTool( "decideRoundSwitchExploit: party is defending - roundswitch=1, planttime=60" );
-		setDvar( "scr_sd_roundswitch", 1 );
-		setDvar( "scr_sd_planttime", 60 );
-		game["toolRoundSwitchState"] = 0;
-	}
-}
 
-// Waits for exactly one "round_win" (_gamelogic.gsc's displayRoundEnd
-// notifies this the instant a round is decided) then ends - re-created
-// fresh every round by ensureRoundSwitchExploitArmed instead of looping,
-// since its predecessor from the previous round didn't survive the round
-// restart anyway. Same event the old 32-bit tool hooked natively
-// (WrapperManager.cpp's VM_Notify handler, !strcmp(Notify, "round_win")) -
-// critically, this fires BEFORE checkRoundSwitch()/onRoundSwitch() run for
-// that round's transition, so locking scr_sd_roundswitch back to 0 here
-// takes effect before the engine evaluates whether to swap sides again.
-watchRoundSwitchExploit()
-{
-	level endon( "game_ended" );
+	if ( !isDefined( game["switchedsides"] ) )
+		game["switchedsides"] = false;
+	game["switchedsides"] = !game["switchedsides"];
 
-	level waittill( "round_win", winner );
-
-	logDebugToTool( "watchRoundSwitchExploit: \"round_win\" fired (winner=" + winner + "), state=" + game["toolRoundSwitchState"] + " roundsPlayed=" + game["roundsPlayed"] + " scr_sd_roundswitch=" + getdvar( "scr_sd_roundswitch" ) );
-
-	if ( game["toolRoundSwitchState"] == 0 )
-	{
-		setDvar( "scr_sd_planttime", 60 );
-		game["toolRoundSwitchState"] = 1;
-	}
-	else if ( game["toolRoundSwitchState"] == 1 )
-	{
-		logDebugToTool( "watchRoundSwitchExploit: locking scr_sd_roundswitch=0, planttime=5" );
-		setDvar( "scr_sd_roundswitch", 0 );
-		setDvar( "scr_sd_planttime", 5 );
-		game["toolRoundSwitchState"] = 2;
-	}
+	logDebugToTool( "enforcePartyIsPlantTeam: party was defending - flipped game[\"switchedsides\"] to " + game["switchedsides"] );
 }
 
 // Same per-map "which team plants by default" table the old 32-bit tool
