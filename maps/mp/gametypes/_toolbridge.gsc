@@ -178,6 +178,18 @@ enforceMaxPlayers()
 // clearing it back to "" once read so the same message doesn't repeat.
 logKickToTool( message )
 {
+	// Same race as logDebugToTool below (native's PollGscKickLog reads+clears
+	// this once per frame via a QUEUED "set tool_kick_log \"\"" command) -
+	// back-to-back calls from a retrying kick loop without this wait were
+	// confirmed live to show up as garbled "set tool_kick_log" text instead
+	// of the actual message.
+	waitTime = 0;
+	while ( getdvar( "tool_kick_log" ) != "" && waitTime < 2 )
+	{
+		wait 0.05;
+		waitTime += 0.05;
+	}
+
 	setDvar( "tool_kick_log", message );
 }
 
