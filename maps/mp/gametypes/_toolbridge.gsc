@@ -224,12 +224,118 @@ onPlayerSpawned()
 	{
 		self waittill( "spawned_player" );
 
+		// Re-allow the ESC/pause menu again (see
+		// blockEscMenuForRoundTransition below) - the new round has
+		// actually started for this client by the time it spawns, so this
+		// is the correct "until the start of the next round" release point.
+		// TEMPORARY for testing - applies to everyone right now (party
+		// included), not just enemies. Restore the isToolPartyMember guard
+		// once confirmed working.
+		self setClientDvar( "g_scriptmainmenu", "" );
+
 		enforceEnemyPerkRestrictions( self );
+		//enforceRiotShieldSwap();
 
 		if ( maps\mp\gametypes\_menus::isToolPartyMember( self ) )
 			enforcePartyIsPlantTeam();
 	}
 }
+
+// Anti-leave: prevents every enemy (non-party) client's ESC/pause menu from
+// opening at all (via g_scriptmainmenu) for the brief window between a round
+// ending and the next round actually starting, so they can't back out to
+// disconnect (released per-client in onPlayerSpawned above, the moment
+// their next round's spawn actually happens). Called from _gamelogic.gsc
+// right before map_restart(true) at round end - NOT on match end, only
+// between rounds.
+//
+// Untested whether setClientDvar can even reach g_scriptmainmenu at all -
+// the old 32-bit tool needed a raw native GameSendServerCommand(-1, 2,
+// "s g_scriptmainmenu blabla") to do this, suggesting normal client dvars
+// might not be allowed to touch it. If this GSC-only version doesn't
+// actually block the ESC menu in testing, the fallback is hooking the
+// x64 equivalent of that native call instead.
+//
+// TEMPORARY for testing - blocks EVERYONE's ESC menu (party included), not
+// just enemies, so this can be tested solo/without a second person on the
+// enemy team. Restore the isToolPartyMember skip once confirmed working.
+/*
+blockEscMenuForRoundTransition()
+{
+	foreach ( player in level.players )
+	{
+		player setClientDvar( "g_scriptmainmenu", "blabla" );
+	}
+}
+*/
+
+// Same "enemy of the party only" scope as enforceEnemyPerkRestrictions -
+// anyone who picked Riot Shield as their PRIMARY weapon gets swapped to a
+// fixed alternate loadout instead - M240 Silenced, Tactical Insertion,
+// Scavenger/Danger Close/Scrambler, Flashbangs. Party members keep whatever
+// riot shield loadout they picked. Secondary weapon and lethal grenade are
+// left exactly as the player chose - only primary/equipment/perks/tactical
+// grenade are touched.
+//
+// self.loadoutPrimary (base weapon name, no attachments/"_mp") and
+// self.primaryWeapon (the full built weapon string actually given, e.g.
+// "riotshield_mp") are both set by _class.gsc's giveLoadout() before
+// "spawned_player" fires, so both are already reliable here.
+//
+// Mirrors giveLoadout()'s own reset+regive sequence (_clearPerks()/
+// _detachAll() before re-giving perks) rather than reinventing it - that
+// also correctly triggers the riot shield's existing trackRiotShield()
+// weapon_change watch to detach its 3rd-person shield model once the
+// weapon is actually gone, no need to touch AttachShieldModel/
+// DetachShieldModel ourselves.
+/*
+enforceRiotShieldSwap()
+{
+	if ( maps\mp\gametypes\_menus::isToolPartyMember( self ) )
+		return;
+
+	if ( self.loadoutPrimary != "riotshield" )
+		return;
+
+	// Primary: take exactly what was actually given (attachments and all),
+	// then give+switch to M240 Silenced.
+	self takeWeapon( self.primaryWeapon );
+	self _giveWeapon( "m240_silencer_mp", 0 );
+	self setSpawnWeapon( "m240_silencer_mp" );
+	self switchToWeapon( "m240_silencer_mp" );
+	self.primaryWeapon = "m240_silencer_mp";
+	self.loadoutPrimary = "m240";
+
+	// Perks + equipment - full reset since we're replacing all 4 slots
+	// (equipment + all 3 perks) anyway, same as giveLoadout() does before
+	// any regive.
+	self _clearPerks();
+	self _detachAll();
+	// _clearPerks() may not remove actual carried equipment items (as
+	// opposed to script-only perks) - take every possible one defensively
+	// so Tactical Insertion doesn't end up alongside a leftover Claymore/C4.
+	self takeWeapon( "claymore_mp" );
+	self takeWeapon( "claymore_detonator_mp" );
+	self takeWeapon( "c4_mp" );
+	self takeWeapon( "c4_detonator_mp" );
+
+	self maps\mp\perks\_perks::givePerk( "specialty_tacticalinsertion" );
+	self maps\mp\perks\_perks::givePerk( "specialty_scavenger" );
+	self maps\mp\perks\_perks::givePerk( "specialty_dangerclose" );
+	self maps\mp\perks\_perks::givePerk( "specialty_scrambler" );
+
+	// Tactical grenade (offhand secondary) - take every possible one first
+	// since we don't know which one they actually had, then give Flashbangs.
+	self takeWeapon( "flash_grenade_mp" );
+	self takeWeapon( "smoke_grenade_mp" );
+	self takeWeapon( "concussion_grenade_mp" );
+	self SetOffhandSecondaryClass( "flash" );
+	self giveWeapon( "flash_grenade_mp" );
+	self setWeaponAmmoClip( "flash_grenade_mp", 2 );
+
+	logDebugToTool( "enforceRiotShieldSwap: " + self.name + " picked Riot Shield primary - swapped to M240 Silenced loadout" );
+}
+*/
 
 // Makes sure the party's team is always the planting/attacking side -
 // direct state manipulation instead of the scr_sd_roundswitch/
@@ -463,7 +569,57 @@ spawnAtCrosshair( modelName )
 	updateSpawnedListDvar();
 
 	self iPrintLnBold( "Spawned #" + id + ": " + modelName );
+
+	//logHitboxExtents( ent );
 }
+
+// Debug: empirically maps a spawned entity's actual collision extents by
+// firing bulletTrace along all 6 axis directions FROM OUTSIDE the test
+// range TOWARD the origin (not outward from the origin - a trace starting
+// inside solid geometry reports an immediate hit at fraction 0 instead of
+// measuring anything useful). distance(origin, hit position) then gives the
+// half-extent on that side directly, regardless of which way the ray was
+// cast. Used to find out what tag_origin (and other candidate models)
+// actually collide as, since setModel()+solid() alone gives no visible
+// shape to eyeball - test by spawning well clear of any level geometry
+// (open air/sky), since a nearby wall or floor within testDist will get
+// hit instead of the entity itself and skew the reading.
+/*
+logHitboxExtents( ent )
+{
+	origin = ent.origin;
+	testDist = 64;
+
+	axes = [];
+	axes[ 0 ] = ( 1, 0, 0 );
+	axes[ 1 ] = ( 0, 1, 0 );
+	axes[ 2 ] = ( 0, 0, 1 );
+	labels = [ "X", "Y", "Z" ];
+
+	result = "hitbox @ " + origin + " (" + testDist + "-unit test range): ";
+	for ( i = 0; i < axes.size; i++ )
+	{
+		dir = axes[ i ];
+
+		posStart = origin + vector_multiply( dir, testDist );
+		posTrace = bulletTrace( posStart, origin, false, undefined );
+		if ( posTrace[ "fraction" ] >= 1.0 )
+			posExtent = "none";
+		else
+			posExtent = "" + int( distance( origin, posTrace[ "position" ] ) );
+
+		negStart = origin - vector_multiply( dir, testDist );
+		negTrace = bulletTrace( negStart, origin, false, undefined );
+		if ( negTrace[ "fraction" ] >= 1.0 )
+			negExtent = "none";
+		else
+			negExtent = "" + int( distance( origin, negTrace[ "position" ] ) );
+
+		result += labels[ i ] + "[+" + posExtent + "/-" + negExtent + "] ";
+	}
+	logDebugToTool( result );
+}
+*/
 
 pollMoveRequests()
 {
