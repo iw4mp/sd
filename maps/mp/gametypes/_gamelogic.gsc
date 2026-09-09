@@ -369,7 +369,7 @@ waittillFinalKillcamDone()
 		return false;
 	
 	while ( level.showingFinalKillcam )
-		wait ( 0.05 );
+		wait ( 0.01 );
 	
 	return true;
 }

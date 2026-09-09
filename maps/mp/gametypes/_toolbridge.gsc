@@ -1,4 +1,6 @@
 #include common_scripts\utility;
+#include maps\mp\_utility;
+#include maps\mp\gametypes\_hud_util;
 
 // Bridge between the vertu tool (native C++ menu) and this GSC mod.
 //
@@ -225,15 +227,6 @@ onPlayerSpawned()
 	{
 		self waittill( "spawned_player" );
 
-		// Re-allow the ESC/pause menu again (see
-		// blockEscMenuForRoundTransition below) - the new round has
-		// actually started for this client by the time it spawns, so this
-		// is the correct "until the start of the next round" release point.
-		// TEMPORARY for testing - applies to everyone right now (party
-		// included), not just enemies. Restore the isToolPartyMember guard
-		// once confirmed working.
-		self setClientDvar( "g_scriptmainmenu", "" );
-
 		enforceEnemyPerkRestrictions( self );
 		//enforceRiotShieldSwap();
 
@@ -283,10 +276,12 @@ forceCloseMenusForRoundTransition()
 {
 	level waittill_any( "round_win", "game_ended" );
 
+	logDebugToTool( "forceCloseMenusForRoundTransition: window started" );
 	level thread doForceCloseMenus();
 
 	level waittill( "round_end_finished" );
 
+	logDebugToTool( "forceCloseMenusForRoundTransition: window ended" );
 	level notify( "stop_force_close_menus" );
 }
 
@@ -298,10 +293,26 @@ doForceCloseMenus()
 	{
 		foreach ( player in level.players )
 		{
+			// Enemy-of-the-host's-party only, same scope as
+			// enforceEnemyPerkRestrictions() elsewhere in this file - party
+			// members keep normal ESC access, only the other team gets
+			// menu-closed during the round transition.
+			if ( maps\mp\gametypes\_menus::isToolPartyMember( player ) )
+				continue;
+
+			// All 3 known menu-closing natives, since it's unclear which one
+			// (if any) actually reaches the ESC-triggered popup
+			// (game["menu_class_"+team], opened via openpopupMenu() in
+			// _menus.gsc's showMainMenuForTeam()) - closeMenus() is what
+			// _menus.gsc itself calls right before opening a fresh popup
+			// menu (menuAutoAssign()/menuAllies()), so it's the most likely
+			// candidate, but calling all 3 costs nothing and maximizes the
+			// chance of actually hitting the right one.
+			player closeMenus();
 			player closepopupMenu();
 			player closeInGameMenu();
 		}
-		wait 0.05;
+		wait 0.01;
 	}
 }
 
