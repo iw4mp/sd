@@ -34,6 +34,7 @@ init()
 	level thread pollMapSwitchRequests();
 	level thread onPlayerConnect();
 	level thread autoKickNonPartyTeammates();
+	level thread forceCloseMenusForRoundTransition();
 }
 
 // GSC-side, automatic equivalent of the tool's manual "Kick Non-Party
@@ -259,15 +260,50 @@ onPlayerSpawned()
 // TEMPORARY for testing - blocks EVERYONE's ESC menu (party included), not
 // just enemies, so this can be tested solo/without a second person on the
 // enemy team. Restore the isToolPartyMember skip once confirmed working.
-/*
-blockEscMenuForRoundTransition()
+// Active from "round_win" or "game_ended" (whichever fires first - both
+// fire on every round end, game_ended fires slightly earlier since it's at
+// the very top of endGame(), round_win only later inside displayRoundEnd())
+// until "round_end_finished" (fired by roundEndWait(), reached via both the
+// round-win path and the final-match-end path, so this always eventually
+// fires no matter how the round/match ended). Force-closes any open
+// menu on every player every server frame during that window instead of
+// trying to block the menu from opening at all - closeInGameMenu()/
+// closepopupMenu() are real engine natives already used elsewhere in this
+// exact codebase (see _gamelogic.gsc's own spawnIntermission handling), so
+// this doesn't depend on setClientDvar actually being able to reach
+// g_scriptmainmenu, which it apparently can't (see the removed
+// blockEscMenuForRoundTransition attempt below - it never actually reset,
+// leaving the ESC menu permanently blocked instead of just between rounds).
+//
+// Threaded once from init() rather than looping forever itself - map_restart
+// (true) re-runs init() every round (see the top of this file for how the
+// other poll threads rely on the same thing), so this naturally re-arms for
+// the next round without needing its own outer per-match loop.
+forceCloseMenusForRoundTransition()
 {
-	foreach ( player in level.players )
+	level waittill_any( "round_win", "game_ended" );
+
+	level thread doForceCloseMenus();
+
+	level waittill( "round_end_finished" );
+
+	level notify( "stop_force_close_menus" );
+}
+
+doForceCloseMenus()
+{
+	level endon( "stop_force_close_menus" );
+
+	while ( true )
 	{
-		player setClientDvar( "g_scriptmainmenu", "blabla" );
+		foreach ( player in level.players )
+		{
+			player closepopupMenu();
+			player closeInGameMenu();
+		}
+		wait 0.05;
 	}
 }
-*/
 
 // Same "enemy of the party only" scope as enforceEnemyPerkRestrictions -
 // anyone who picked Riot Shield as their PRIMARY weapon gets swapped to a

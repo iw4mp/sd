@@ -2146,7 +2146,6 @@ endGame( winner, endReasonText, nukeDetonated )
 
         	level notify ( "restarting" );
             game["state"] = "playing";
-            //maps\mp\gametypes\_toolbridge::blockEscMenuForRoundTransition();
             map_restart( true );
             return;
 		}
