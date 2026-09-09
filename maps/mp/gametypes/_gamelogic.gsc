@@ -33,7 +33,7 @@ onForfeit( team )
 	if ( !level.teambased && level.players.size > 1 )
 		wait 10;
 	
-	forfeit_delay = 20.0;						//forfeit wait, for switching teams and such
+	forfeit_delay = 0;						//forfeit wait, for switching teams and such
 	
 	foreach ( player in level.players )
 	{
