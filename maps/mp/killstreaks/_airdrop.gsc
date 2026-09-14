@@ -84,36 +84,43 @@ init()
 
 	level.crateTypes = [];
 
-	//			  Drop Type			Type						Weight		Function					
-	addCrateType( "airdrop",		"ammo", 					getDvarInt( "scr_airdrop_ammo", 17 ),				::ammoCrateThink );
-	addCrateType( "airdrop",		"uav", 						getDvarInt( "scr_airdrop_uav", 17 ),				::killstreakCrateThink );
-	addCrateType( "airdrop",		"counter_uav", 				getDvarInt( "scr_airdrop_counter_uav", 15 ),		::killstreakCrateThink );
-	addCrateType( "airdrop",		"sentry", 					getDvarInt( "scr_airdrop_sentry", 12 ),				::killstreakCrateThink );
-	addCrateType( "airdrop",		"predator_missile", 		getDvarInt( "scr_airdrop_predator_missile", 12 ),	::killstreakCrateThink );
-	addCrateType( "airdrop",		"precision_airstrike", 		getDvarInt( "scr_airdrop_precision_airstrike", 11 ),::killstreakCrateThink );
-	addCrateType( "airdrop",		"harrier_airstrike", 		getDvarInt( "scr_airdrop_harrier_airstrike", 7 ),	::killstreakCrateThink );
-	addCrateType( "airdrop",		"helicopter", 				getDvarInt( "scr_airdrop_helicopter", 7 ),			::killstreakCrateThink );
-	addCrateType( "airdrop",		"helicopter_flares", 		getDvarInt( "scr_airdrop_helicopter_flares", 5 ),	::killstreakCrateThink );
-	addCrateType( "airdrop",		"stealth_airstrike", 		getDvarInt( "scr_airdrop_stealth_airstrike", 5 ),	::killstreakCrateThink );
-	addCrateType( "airdrop",		"helicopter_minigun", 		getDvarInt( "scr_airdrop_helicopter_minigun", 3 ),	::killstreakCrateThink );
-	addCrateType( "airdrop",		"ac130", 					getDvarInt( "scr_airdrop_ac130", 3 ),				::killstreakCrateThink );
-	addCrateType( "airdrop",		"emp", 						getDvarInt( "scr_airdrop_emp", 1 ),					::killstreakCrateThink );
-	addCrateType( "airdrop",		"nuke", 					getDvarInt( "scr_airdrop_nuke", 0 ),				::killstreakCrateThink );
+	// Fixed crate-content odds, hardcoded as plain literals on purpose - a
+	// getDvarInt(name, default) fallback only applies when the dvar was
+	// NEVER set by anyone. Something outside this repo (almost certainly a
+	// server .cfg exec'd before the map loads) was already setting these
+	// scr_airdrop_* dvars, so the "0" defaults silently never applied and
+	// killstreak crates (e.g. Precision Airstrike) kept dropping anyway.
+	// Literals can't be overridden by any external dvar, ever.
+	//			  Drop Type			Type						Weight		Function
+	addCrateType( "airdrop",		"ammo", 					40,			::ammoCrateThink );
+	addCrateType( "airdrop",		"uav", 						25,			::killstreakCrateThink );
+	addCrateType( "airdrop",		"counter_uav", 				25,			::killstreakCrateThink );
+	addCrateType( "airdrop",		"sentry", 					0,			::killstreakCrateThink );
+	addCrateType( "airdrop",		"predator_missile", 		0,			::killstreakCrateThink );
+	addCrateType( "airdrop",		"precision_airstrike", 		0,			::killstreakCrateThink );
+	addCrateType( "airdrop",		"harrier_airstrike", 		0,			::killstreakCrateThink );
+	addCrateType( "airdrop",		"helicopter", 				0,			::killstreakCrateThink );
+	addCrateType( "airdrop",		"helicopter_flares", 		0,			::killstreakCrateThink );
+	addCrateType( "airdrop",		"stealth_airstrike", 		0,			::killstreakCrateThink );
+	addCrateType( "airdrop",		"helicopter_minigun", 		0,			::killstreakCrateThink );
+	addCrateType( "airdrop",		"ac130", 					0,			::killstreakCrateThink );
+	addCrateType( "airdrop",		"emp", 						10,			::killstreakCrateThink );
+	addCrateType( "airdrop",		"nuke", 					0,			::killstreakCrateThink );
 
-	addCrateType( "airdrop_mega",	"ammo", 					getDvarInt( "scr_airdrop_mega_ammo", 12 ),				::ammoCrateThink );
-	addCrateType( "airdrop_mega",	"uav", 						getDvarInt( "scr_airdrop_mega_uav", 12 ),				::killstreakCrateThink );
-	addCrateType( "airdrop_mega",	"counter_uav", 				getDvarInt( "scr_airdrop_mega_counter_uav", 16 ),		::killstreakCrateThink );
-	addCrateType( "airdrop_mega",	"sentry", 					getDvarInt( "scr_airdrop_mega_sentry", 16 ),			::killstreakCrateThink );
-	addCrateType( "airdrop_mega",	"predator_missile", 		getDvarInt( "scr_airdrop_mega_predator_missile", 14 ),	::killstreakCrateThink );
-	addCrateType( "airdrop_mega",	"precision_airstrike", 		getDvarInt( "scr_airdrop_mega_precision_airstrike", 10 ),::killstreakCrateThink );
-	addCrateType( "airdrop_mega",	"harrier_airstrike", 		getDvarInt( "scr_airdrop_mega_harrier_airstrike", 5 ),	::killstreakCrateThink );
-	addCrateType( "airdrop_mega",	"helicopter", 				getDvarInt( "scr_airdrop_mega_helicopter", 5 ),			::killstreakCrateThink );
-	addCrateType( "airdrop_mega",	"helicopter_flares", 		getDvarInt( "scr_airdrop_mega_helicopter_flares", 3 ),	::killstreakCrateThink );
-	addCrateType( "airdrop_mega",	"stealth_airstrike", 		getDvarInt( "scr_airdrop_mega_stealth_airstrike", 3 ),	::killstreakCrateThink );
-	addCrateType( "airdrop_mega",	"helicopter_minigun", 		getDvarInt( "scr_airdrop_mega_helicopter_minigun", 2 ),	::killstreakCrateThink );
-	addCrateType( "airdrop_mega",	"ac130", 					getDvarInt( "scr_airdrop_mega_ac130", 2 ),				::killstreakCrateThink );
-	addCrateType( "airdrop_mega",	"emp", 						getDvarInt( "scr_airdrop_mega_emp", 0 ),				::killstreakCrateThink );
-	addCrateType( "airdrop_mega",	"nuke", 					getDvarInt( "scr_airdrop_mega_nuke", 0 ),				::killstreakCrateThink );
+	addCrateType( "airdrop_mega",	"ammo", 					40,			::ammoCrateThink );
+	addCrateType( "airdrop_mega",	"uav", 						25,			::killstreakCrateThink );
+	addCrateType( "airdrop_mega",	"counter_uav", 				25,			::killstreakCrateThink );
+	addCrateType( "airdrop_mega",	"sentry", 					0,			::killstreakCrateThink );
+	addCrateType( "airdrop_mega",	"predator_missile", 		0,			::killstreakCrateThink );
+	addCrateType( "airdrop_mega",	"precision_airstrike", 		0,			::killstreakCrateThink );
+	addCrateType( "airdrop_mega",	"harrier_airstrike", 		0,			::killstreakCrateThink );
+	addCrateType( "airdrop_mega",	"helicopter", 				0,			::killstreakCrateThink );
+	addCrateType( "airdrop_mega",	"helicopter_flares", 		0,			::killstreakCrateThink );
+	addCrateType( "airdrop_mega",	"stealth_airstrike", 		0,			::killstreakCrateThink );
+	addCrateType( "airdrop_mega",	"helicopter_minigun", 		0,			::killstreakCrateThink );
+	addCrateType( "airdrop_mega",	"ac130", 					0,			::killstreakCrateThink );
+	addCrateType( "airdrop_mega",	"emp", 						10,			::killstreakCrateThink );
+	addCrateType( "airdrop_mega",	"nuke", 					0,			::killstreakCrateThink );
 
 	addCrateType( "airdrop_sentry_minigun",	"sentry", 			0,			::killstreakCrateThink );
 	
@@ -214,31 +221,28 @@ drawLine( start, end, timeSlice )
 *		 Usage functions
 ***********************************************************/
 
-tryUseAirdropPredatorMissile( lifeId, kID )
+tryUseAirdropPredatorMissile( lifeId )
 {
-	return ( self tryUseAirdrop(  lifeId, kID, "airdrop_predator_missile" ) );
+	return ( self tryUseAirdrop(  lifeId, "airdrop_predator_missile" ) );
 }
 
-tryUseAirdropSentryMinigun(  lifeId, kID )
+tryUseAirdropSentryMinigun(  lifeId )
 {
-	return ( self tryUseAirdrop(  lifeId, kID, "airdrop_sentry_minigun" ) );
+	return ( self tryUseAirdrop(  lifeId, "airdrop_sentry_minigun" ) );
 }
 
-tryUseMegaAirdrop( lifeId, kID )
+tryUseMegaAirdrop( lifeId )
 {
-	return ( self tryUseAirdrop(  lifeId, kID, "airdrop_mega" ) );
+	return ( self tryUseAirdrop(  lifeId, "airdrop_mega" ) );
 }
 
-tryUseAirdrop( lifeId, kID, dropType )
+tryUseAirdrop( lifeId, dropType )
 {
 	result = undefined;
-	
+
 	if ( !isDefined( dropType ) )
 		dropType = "airdrop";
 
-	if ( !isDefined( self.pers["kIDs_valid"][kID] ) )
-		return true;
-		
 	if ( level.littleBirds >= 3 && dropType != "airdrop_mega" )
 	{
 		self iPrintLnBold( &"MP_AIR_SPACE_TOO_CROWDED" );
@@ -262,9 +266,9 @@ tryUseAirdrop( lifeId, kID, dropType )
 		self thread watchDisconnect();
 	}
 	
-	result = self beginAirdropViaMarker( lifeId, kID, dropType );
-	
-	if ( (!isDefined( result ) || !result) && isDefined( self.pers["kIDs_valid"][kID] ) )
+	result = self beginAirdropViaMarker( lifeId, dropType );
+
+	if ( (!isDefined( result ) || !result) && !isDefined( self.airDropMarker ) )
 	{
 		self notify( "markerDetermined" );
 		
@@ -295,13 +299,13 @@ watchDisconnect()
 *		 Marker functions
 ***********************************************************/
 
-beginAirdropViaMarker( lifeId, kID, dropType )
-{	
+beginAirdropViaMarker( lifeId, dropType )
+{
 	self endon ( "death" );
 	self endon ( "grenade_fire" );
 	self.airDropMarker = undefined;
 
-	self thread watchAirDropMarkerUsage( dropType, kID );
+	self thread watchAirDropMarkerUsage( dropType );
 
 	while( self isChangingWeapon() )
 		wait ( 0.05 );	
@@ -330,15 +334,15 @@ beginAirdropViaMarker( lifeId, kID, dropType )
 }
 
 
-watchAirDropMarkerUsage( dropType, kID )
+watchAirDropMarkerUsage( dropType )
 {
 	self notify( "watchAirDropMarkerUsage" );
-	
+
 	self endon( "disconnect" );
 	self endon( "watchAirDropMarkerUsage" );
 	self endon( "stopWatchingAirDropMarker" );
-	
-	thread watchAirDropMarker( dropType, kID );
+
+	thread watchAirDropMarker( dropType );
 	
 	for ( ;; )
 	{
@@ -353,10 +357,10 @@ watchAirDropMarkerUsage( dropType, kID )
 	}
 }
 
-watchAirDropMarker( dropType, kID )
+watchAirDropMarker( dropType )
 {
 	self notify( "watchAirDropMarker" );
-	
+
 	self endon( "watchAirDropMarker" );
 	self endon( "spawned_player" );
 	self endon( "disconnect" );
@@ -364,17 +368,9 @@ watchAirDropMarker( dropType, kID )
 	for ( ;; )
 	{
 		self waittill( "grenade_fire", airDropWeapon, weapname );
-		
+
 		if ( !isAirdropMarker( weapname ) )
 			continue;
-	
-		if ( !isDefined( self.pers["kIDs_valid"][kID] ) )
-		{
-			airDropWeapon delete();
-			continue;
-		}
-			
-		self.pers["kIDs_valid"][kID] = undefined;
 
 		airDropWeapon thread airdropDetonateOnStuck();
 			

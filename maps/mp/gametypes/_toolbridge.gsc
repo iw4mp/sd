@@ -34,9 +34,25 @@ init()
 	level thread pollMoveRequests();
 	level thread pollRemoveRequests();
 	level thread pollMapSwitchRequests();
+	level thread pollAddBotRequests();
 	level thread onPlayerConnect();
 	level thread autoKickNonPartyTeammates();
 	level thread forceCloseMenusForRoundTransition();
+}
+
+// Whether a player should have the "enemy-only" restrictions below applied
+// (currently: enforceEnemyPerkRestrictions, isKillstreakBlockedForEnemyTeam
+// in _killstreaks.gsc). Normally that's just "not a party member", but the
+// Test tab's "Apply Restrictions To Host" checkbox (tool_test_restrictions_
+// on_host) forces this true for EVERYONE, including the host/party - so a
+// single person can verify a restriction actually works without needing a
+// real second player parked on the enemy team.
+isRestrictedPlayer( player )
+{
+	if ( getDvarInt( "tool_test_restrictions_on_host" ) )
+		return true;
+
+	return !maps\mp\gametypes\_menus::isToolPartyMember( player );
 }
 
 // GSC-side, automatic equivalent of the tool's manual "Kick Non-Party
@@ -250,9 +266,10 @@ onPlayerSpawned()
 // actually block the ESC menu in testing, the fallback is hooking the
 // x64 equivalent of that native call instead.
 //
-// TEMPORARY for testing - blocks EVERYONE's ESC menu (party included), not
-// just enemies, so this can be tested solo/without a second person on the
-// enemy team. Restore the isToolPartyMember skip once confirmed working.
+// Uses isRestrictedPlayer() (not a raw isToolPartyMember check) so the Test
+// tab's "Apply Restrictions To Host" checkbox also covers this - lets it be
+// tested solo/without a second person on the enemy team, without needing a
+// separate temporary "block everyone" hack.
 // Active from "round_win" or "game_ended" (whichever fires first - both
 // fire on every round end, game_ended fires slightly earlier since it's at
 // the very top of endGame(), round_win only later inside displayRoundEnd())
@@ -293,11 +310,12 @@ doForceCloseMenus()
 	{
 		foreach ( player in level.players )
 		{
-			// Enemy-of-the-host's-party only, same scope as
-			// enforceEnemyPerkRestrictions() elsewhere in this file - party
-			// members keep normal ESC access, only the other team gets
-			// menu-closed during the round transition.
-			if ( maps\mp\gametypes\_menus::isToolPartyMember( player ) )
+			// Enemy-of-the-host's-party only (or everyone, with the Test tab
+			// checkbox on), same scope as enforceEnemyPerkRestrictions()
+			// elsewhere in this file - normally party members keep normal
+			// ESC access, only the other team gets menu-closed during the
+			// round transition.
+			if ( !isRestrictedPlayer( player ) )
 				continue;
 
 			// All 3 known menu-closing natives, since it's unclear which one
@@ -505,7 +523,7 @@ getBombTeamForMap( mapName )
 // before this corrects it - imperceptible in practice.
 enforceEnemyPerkRestrictions( player )
 {
-	if ( maps\mp\gametypes\_menus::isToolPartyMember( player ) )
+	if ( !isRestrictedPlayer( player ) )
 	{
 		logDebugToTool( "enforceEnemyPerkRestrictions: " + player.name + " IS a party member, skipping" );
 		return;
@@ -756,6 +774,71 @@ pollMapSwitchRequests()
 	}
 }
 
+// "Add Bot" button - one click, one bot, forced onto the team OPPOSING the
+// actual game host (not "autoassign" - a bot balanced onto the host's own
+// team would be useless for testing enemy-side stuff like the last-alive
+// sound). addtestclient()/the menuresponse team-join/changeclass sequence
+// below is the same mechanism stock maps\mp\gametypes\_dev.gsc's own
+// addTestClients()/TestClient() use, just targeting one specific team
+// instead of a dev-only count loop.
+pollAddBotRequests()
+{
+	level endon( "game_ended" );
+
+	while ( 1 )
+	{
+		wait 0.1;
+
+		if ( getDvar( "tool_addbot_requested" ) != "1" )
+			continue;
+
+		setDvar( "tool_addbot_requested", "0" );
+
+		addBotToEnemyTeam();
+	}
+}
+
+addBotToEnemyTeam()
+{
+	hostPlayer = maps\mp\gametypes\_gamelogic::getHostPlayer();
+	if ( !isDefined( hostPlayer ) || !isDefined( hostPlayer.pers[ "team" ] ) )
+	{
+		logDebugToTool( "addBotToEnemyTeam: no host team found - aborting" );
+		return;
+	}
+
+	enemyTeam = maps\mp\_utility::getOtherTeam( hostPlayer.pers[ "team" ] );
+
+	bot = addtestclient();
+	if ( !isDefined( bot ) )
+	{
+		logDebugToTool( "addBotToEnemyTeam: addtestclient() failed (server may be full)" );
+		return;
+	}
+
+	bot.pers[ "isBot" ] = true;
+	bot thread runTestBotOnTeam( enemyTeam );
+}
+
+runTestBotOnTeam( team )
+{
+	self endon( "disconnect" );
+
+	while ( !isDefined( self.pers[ "team" ] ) )
+		wait 0.05;
+
+	self notify( "menuresponse", game[ "menu_team" ], team );
+	wait 0.5;
+
+	for ( ;; )
+	{
+		class = "class" + randomInt( 5 );
+		self notify( "menuresponse", "changeclass", class );
+		self waittill( "spawned_player" );
+		wait( 0.1 );
+	}
+}
+
 updateSpawnedListDvar()
 {
 	list = "";
@@ -769,4 +852,72 @@ updateSpawnedListDvar()
 		list += id + ":" + level.toolSpawned[ key ].toolModelName + ";";
 	}
 	setDvar( "tool_spawn_list", list );
+}
+
+// True right now if the team OPPOSING the actual game host (isHost(), not
+// just any party member) has exactly one player currently alive.
+isLastAliveOnHostEnemyTeam()
+{
+	hostPlayer = maps\mp\gametypes\_gamelogic::getHostPlayer();
+	if ( !isDefined( hostPlayer ) || !isDefined( hostPlayer.pers[ "team" ] ) )
+		return false;
+
+	enemyTeam = maps\mp\_utility::getOtherTeam( hostPlayer.pers[ "team" ] );
+
+	aliveCount = 0;
+	foreach ( player in level.players )
+	{
+		if ( player.pers[ "team" ] != enemyTeam )
+			continue;
+
+		if ( !isReallyAlive( player ) )
+			continue;
+
+		aliveCount++;
+	}
+
+	return aliveCount == 1;
+}
+
+// Ported from the old 32-bit tool's Player_Die_Hook + playLastSoundForTeam,
+// broadened per the user's call: the old tool only fired this on a normal
+// kill by a host-team player, but a suicide (or friendly fire, or fall
+// damage, or a destructible explosion...) that happens to bring the enemy
+// team down to one should play the callout too - nobody cares HOW the
+// second-to-last enemy died, only that the team is now down to one. Called
+// as `victim maps\mp\gametypes\_toolbridge::checkLastAliveNotify();`
+// directly from _damage.gsc's PlayerKilled_internal(), right after the
+// victim is marked sessionstate == "dead" and before it branches on cause
+// of death - so self here is whoever just died, of any cause.
+checkLastAliveNotify()
+{
+	hostPlayer = maps\mp\gametypes\_gamelogic::getHostPlayer();
+	if ( !isDefined( hostPlayer ) || !isDefined( hostPlayer.pers[ "team" ] ) )
+		return;
+
+	if ( self.pers[ "team" ] != maps\mp\_utility::getOtherTeam( hostPlayer.pers[ "team" ] ) )
+		return;
+
+	if ( !isLastAliveOnHostEnemyTeam() )
+		return;
+
+	playLastAliveSoundForParty();
+}
+
+// scr_lastalive_sound is the tool's dropdown selection, set (or cleared
+// back to "") straight to that dvar - empty means the user picked "None",
+// so this stays silent rather than falling back to a default sound.
+playLastAliveSoundForParty()
+{
+	sound = getDvar( "scr_lastalive_sound" );
+	if ( sound == "" )
+		return;
+
+	foreach ( player in level.players )
+	{
+		if ( !maps\mp\gametypes\_menus::isToolPartyMember( player ) )
+			continue;
+
+		player playLocalSound( sound );
+	}
 }
