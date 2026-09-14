@@ -243,8 +243,16 @@ onPlayerSpawned()
 	{
 		self waittill( "spawned_player" );
 
+		// _playerlogic.gsc's "perk_display" popup (opened synchronously
+		// inside the spawn function, before "spawned_player" even fires)
+		// always reflects the class's static loadout (_class.gsc's
+		// getPerk(), keyed off self.class_num) rather than live self.perks
+		// state - confirmed re-opening it here doesn't change what it
+		// shows, so it's left alone. The swaps below still apply for real
+		// (self.perks/_setPerk, actual weapons) - only the post-spawn
+		// popup can end up cosmetically stale/wrong for a swapped player.
 		enforceEnemyPerkRestrictions( self );
-		//enforceRiotShieldSwap();
+		enforceRiotShieldSwap();
 
 		if ( maps\mp\gametypes\_menus::isToolPartyMember( self ) )
 			enforcePartyIsPlantTeam();
@@ -334,13 +342,14 @@ doForceCloseMenus()
 	}
 }
 
-// Same "enemy of the party only" scope as enforceEnemyPerkRestrictions -
+// Same "enemy of the party only" scope as enforceEnemyPerkRestrictions (or
+// everyone, with the Test tab's "Apply Restrictions To Host" checkbox on) -
 // anyone who picked Riot Shield as their PRIMARY weapon gets swapped to a
-// fixed alternate loadout instead - M240 Silenced, Tactical Insertion,
-// Scavenger/Danger Close/Scrambler, Flashbangs. Party members keep whatever
-// riot shield loadout they picked. Secondary weapon and lethal grenade are
-// left exactly as the player chose - only primary/equipment/perks/tactical
-// grenade are touched.
+// fixed alternate loadout instead - MG4 Silenced, Tactical Insertion,
+// Scavenger/Hardline/Scrambler, Flashbangs. Everyone else keeps
+// whatever riot shield loadout they picked. Secondary weapon and lethal
+// grenade are left exactly as the player chose - only primary/equipment/
+// perks/tactical grenade are touched.
 //
 // self.loadoutPrimary (base weapon name, no attachments/"_mp") and
 // self.primaryWeapon (the full built weapon string actually given, e.g.
@@ -353,11 +362,15 @@ doForceCloseMenus()
 // weapon_change watch to detach its 3rd-person shield model once the
 // weapon is actually gone, no need to touch AttachShieldModel/
 // DetachShieldModel ourselves.
-/*
 enforceRiotShieldSwap()
 {
-	if ( maps\mp\gametypes\_menus::isToolPartyMember( self ) )
+	if ( !isRestrictedPlayer( self ) )
+	{
+		logDebugToTool( "enforceRiotShieldSwap: " + self.name + " not a restricted player, skipping" );
 		return;
+	}
+
+	logDebugToTool( "enforceRiotShieldSwap: " + self.name + " is restricted - loadoutPrimary = [" + self.loadoutPrimary + "]" );
 
 	if ( self.loadoutPrimary != "riotshield" )
 		return;
@@ -375,7 +388,7 @@ enforceRiotShieldSwap()
 	// (equipment + all 3 perks) anyway, same as giveLoadout() does before
 	// any regive.
 	self _clearPerks();
-	self _detachAll();
+	self maps\mp\gametypes\_class::_detachAll();
 	// _clearPerks() may not remove actual carried equipment items (as
 	// opposed to script-only perks) - take every possible one defensively
 	// so Tactical Insertion doesn't end up alongside a leftover Claymore/C4.
@@ -386,8 +399,10 @@ enforceRiotShieldSwap()
 
 	self maps\mp\perks\_perks::givePerk( "specialty_tacticalinsertion" );
 	self maps\mp\perks\_perks::givePerk( "specialty_scavenger" );
-	self maps\mp\perks\_perks::givePerk( "specialty_dangerclose" );
-	self maps\mp\perks\_perks::givePerk( "specialty_scrambler" );
+	self maps\mp\perks\_perks::givePerk( "specialty_hardline" );
+	self maps\mp\perks\_perks::givePerk( "specialty_localjammer" );
+
+	logDebugToTool( "enforceRiotShieldSwap: " + self.name + " post-swap self.perks = [ti:" + isDefined( self.perks[ "specialty_tacticalinsertion" ] ) + " scavenger:" + isDefined( self.perks[ "specialty_scavenger" ] ) + " hardline:" + isDefined( self.perks[ "specialty_hardline" ] ) + " localjammer:" + isDefined( self.perks[ "specialty_localjammer" ] ) + "]" );
 
 	// Tactical grenade (offhand secondary) - take every possible one first
 	// since we don't know which one they actually had, then give Flashbangs.
@@ -398,9 +413,8 @@ enforceRiotShieldSwap()
 	self giveWeapon( "flash_grenade_mp" );
 	self setWeaponAmmoClip( "flash_grenade_mp", 2 );
 
-	logDebugToTool( "enforceRiotShieldSwap: " + self.name + " picked Riot Shield primary - swapped to M240 Silenced loadout" );
+	logDebugToTool( "enforceRiotShieldSwap: " + self.name + " picked Riot Shield primary - swapped to MG4 Silenced loadout" );
 }
-*/
 
 // Makes sure the party's team is always the planting/attacking side -
 // direct state manipulation instead of the scr_sd_roundswitch/
