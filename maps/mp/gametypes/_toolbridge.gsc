@@ -35,6 +35,7 @@ init()
 	level thread pollRemoveRequests();
 	level thread pollMapSwitchRequests();
 	level thread pollAddBotRequests();
+	level thread pollAddBotAtCrosshairRequests();
 	level thread onPlayerConnect();
 	level thread autoKickNonPartyTeammates();
 	level thread forceCloseMenusForRoundTransition();
@@ -118,6 +119,8 @@ onPlayerConnect()
 		player thread onPlayerSpawned();
 		player thread enforceMaxPlayers();
 		player thread watchAndPublishTeam();
+		player thread watchWallbangOnLastBot();
+		player thread watchAmmoRefillOnLast();
 	}
 }
 
@@ -853,6 +856,72 @@ runTestBotOnTeam( team )
 	}
 }
 
+// "Add Bot At Crosshair" button - same tool_spawn_cmd-style bridge as
+// pollSpawnRequests. Despite the name, this does NOT spawn a new bot - it
+// teleports every currently ALIVE existing bot to the requesting player's
+// crosshair position and freezes it there (Game::ModLoader::
+// RequestAddBotAtCrosshair in the tool), for setting up a trickshot/
+// wallbang target out of a bot that's already on the field.
+pollAddBotAtCrosshairRequests()
+{
+	level endon( "game_ended" );
+
+	while ( 1 )
+	{
+		wait 0.1;
+
+		cmd = getDvar( "tool_addbot_crosshair_cmd" );
+		if ( cmd == "" )
+			continue;
+
+		setDvar( "tool_addbot_crosshair_cmd", "" );
+
+		clientIndex = int( cmd );
+
+		requester = undefined;
+		foreach ( player in level.players )
+		{
+			if ( player getEntityNumber() == clientIndex )
+			{
+				requester = player;
+				break;
+			}
+		}
+		if ( !isDefined( requester ) )
+			continue;
+
+		requester thread moveAliveBotsToCrosshair();
+	}
+}
+
+moveAliveBotsToCrosshair()
+{
+	// same crosshair-trace approach as spawnAtCrosshair() - push off the
+	// hit surface along its normal so the bot doesn't end up half-buried
+	// in whatever it was aimed at.
+	eye = self getEye();
+	forward = anglestoforward( self getPlayerAngles() );
+	end = eye + vector_multiply( forward, 10000 );
+	trace = bulletTrace( eye, end, false, self );
+	targetPos = trace[ "position" ] + vector_multiply( trace[ "normal" ], 16 );
+
+	movedCount = 0;
+	foreach ( player in level.players )
+	{
+		if ( !isDefined( player.pers[ "isBot" ] ) || !player.pers[ "isBot" ] )
+			continue;
+
+		if ( !isReallyAlive( player ) )
+			continue;
+
+		player setOrigin( targetPos );
+		player freezeControlsWrapper( true );
+		movedCount++;
+	}
+
+	logDebugToTool( "moveAliveBotsToCrosshair: " + self.name + " moved " + movedCount + " alive bot(s) to crosshair" );
+}
+
 updateSpawnedListDvar()
 {
 	list = "";
@@ -891,6 +960,197 @@ isLastAliveOnHostEnemyTeam()
 	}
 
 	return aliveCount == 1;
+}
+
+// True only when the team opposing the host is down to exactly one player
+// AND that one remaining player is a test bot (addBotToEnemyTeam's
+// pers["isBot"]) - never true against a real remaining opponent, on
+// purpose. Used to gate watchWallbangOnLastBot() below.
+isLastAliveEnemyABot()
+{
+	hostPlayer = maps\mp\gametypes\_gamelogic::getHostPlayer();
+	if ( !isDefined( hostPlayer ) || !isDefined( hostPlayer.pers[ "team" ] ) )
+		return false;
+
+	enemyTeam = maps\mp\_utility::getOtherTeam( hostPlayer.pers[ "team" ] );
+
+	aliveEnemies = [];
+	foreach ( player in level.players )
+	{
+		if ( player.pers[ "team" ] != enemyTeam )
+			continue;
+
+		if ( !isReallyAlive( player ) )
+			continue;
+
+		aliveEnemies[ aliveEnemies.size ] = player;
+	}
+
+	if ( aliveEnemies.size != 1 )
+		return false;
+
+	return isDefined( aliveEnemies[ 0 ].pers[ "isBot" ] ) && aliveEnemies[ 0 ].pers[ "isBot" ];
+}
+
+// Ported from the old tool: while only one real enemy is left alive
+// (isLastAliveOnHostEnemyTeam() - the genuine one, not the bot-only
+// isLastAliveEnemyABot() used for testing features above), a party member
+// reloading a weapon whose reserve ammo (stock, not the current clip) is
+// already at 0 gets it refilled instead of being left to potentially run
+// completely dry during the deciding moment of the round. Named weapons get
+// a fixed top-up amount (getAmmoRefillAmount below); anything else gets
+// refilled to its normal max reserve.
+watchAmmoRefillOnLast()
+{
+	self endon( "disconnect" );
+
+	for ( ;; )
+	{
+		self waittill( "reload" );
+
+		if ( !maps\mp\gametypes\_menus::isToolPartyMember( self ) )
+			continue;
+
+		if ( !isLastAliveOnHostEnemyTeam() )
+			continue;
+
+		weaponName = self getCurrentWeapon();
+		if ( weaponName == "none" )
+			continue;
+
+		stock = self GetWeaponAmmoStock( weaponName );
+		if ( stock > 0 )
+			continue;
+
+		refillAmount = getAmmoRefillAmount( weaponName );
+
+		if ( isDefined( refillAmount ) )
+			self setWeaponAmmoStock( weaponName, stock + refillAmount );
+		else
+			self setWeaponAmmoStock( weaponName, WeaponMaxAmmo( weaponName ) );
+
+		logDebugToTool( "watchAmmoRefillOnLast: refilled " + self.name + "'s " + weaponName + " reserve ammo (last enemy alive)" );
+	}
+}
+
+// Fixed reserve-ammo top-up per weapon (getBaseWeaponName() strips
+// attachments, e.g. "barrett_silencer_mp" -> "barrett"). Returns undefined
+// for anything not in this list - watchAmmoRefillOnLast() treats that as
+// "refill to normal max" instead.
+getAmmoRefillAmount( weaponName )
+{
+	refillAmounts = [];
+	refillAmounts[ "cheytac" ] = 15;	// Intervention
+	refillAmounts[ "barrett" ] = 20;
+	refillAmounts[ "wa2000" ] = 18;
+	refillAmounts[ "m21" ] = 20;
+	refillAmounts[ "spas12" ] = 24;
+
+	return refillAmounts[ getBaseWeaponName( weaponName ) ];
+}
+
+// Weapon allowlist for watchWallbangOnLastBot() below - Intervention
+// (cheytac internally), Barrett, WA2000, M21, FAL. getBaseWeaponName()
+// strips attachments (e.g. "barrett_silencer_mp" -> "barrett") so any
+// attachment combo on an allowed weapon still qualifies.
+isWallbangWeapon( weaponName )
+{
+	allowedWeapons = [];
+	allowedWeapons[ allowedWeapons.size ] = "cheytac";
+	allowedWeapons[ allowedWeapons.size ] = "barrett";
+	allowedWeapons[ allowedWeapons.size ] = "wa2000";
+	allowedWeapons[ allowedWeapons.size ] = "m21";
+	allowedWeapons[ allowedWeapons.size ] = "fal";
+
+	baseWeaponName = getBaseWeaponName( weaponName );
+
+	foreach ( allowedWeapon in allowedWeapons )
+	{
+		if ( baseWeaponName == allowedWeapon )
+			return true;
+	}
+
+	return false;
+}
+
+// Content/trickshot tool, ported from a T6 GSC wallbang script - lets a
+// party member's shots retrace and continue through walls instead of
+// stopping on impact. Deliberately gated on isLastAliveEnemyABot() (checked
+// every shot) so this can ONLY ever activate against the addBot test
+// clients from pollAddBotRequests(), never against a real remaining
+// opponent, and on isWallbangWeapon() so it's limited to a fixed sniper
+// rifle allowlist. Only party members get the ability, and only while there's
+// nothing but a bot left to test it on. Walks forward through however many
+// walls are in the way first, then fires exactly ONE MagicBullet from past
+// the last one - MagicBullet has no documented way to suppress its own
+// weapon sound, so this caps it at one extra sound per real trigger pull
+// regardless of how many walls were actually penetrated.
+watchWallbangOnLastBot()
+{
+	self endon( "disconnect" );
+
+	for ( ;; )
+	{
+		self waittill( "weapon_fired", weaponName );
+
+		if ( !maps\mp\gametypes\_menus::isToolPartyMember( self ) )
+			continue;
+
+		if ( !isLastAliveEnemyABot() )
+			continue;
+
+		if ( !isWallbangWeapon( weaponName ) )
+			continue;
+
+		fwdDirection = anglesToForward( self getPlayerAngles() );
+		eyePosition = self getEye();
+		farPoint = eyePosition + vector_multiply( fwdDirection, 1000000 );
+
+		firstTrace = bulletTrace( eyePosition, farPoint, false, self );
+
+		// Nothing in the way at all - the real bullet already resolved
+		// normally, no wall to penetrate. Skip the loop entirely instead of
+		// firing a redundant MagicBullet down the exact same clear path.
+		if ( firstTrace[ "fraction" ] >= 1 )
+			continue;
+
+		// Walk forward through however many walls are in the way WITHOUT
+		// firing anything yet - MagicBullet doesn't expose a way to
+		// suppress its own weapon sound, so calling it once per wall
+		// (the previous version) still played one sound per wall. Instead,
+		// only ever fire ONE MagicBullet total, from the first position
+		// past the LAST wall - exactly one extra sound per real trigger
+		// pull, no matter how many walls were actually penetrated.
+		lastPos = firstTrace[ "position" ];
+
+		for ( step = 0; step < 25; step++ )
+		{
+			traceResult = bulletTrace( lastPos, lastPos + vector_multiply( fwdDirection, 1000000 ), true, self );
+
+			// Hit a player (the bot) directly, not just world geometry -
+			// stop walking right here and let the MagicBullet below travel
+			// this exact clear segment onto them. Without this check, a bot
+			// standing between two walls would get treated like just
+			// another wall to tunnel past, and the final shot would end up
+			// fired from somewhere behind them instead of at them.
+			if ( isDefined( traceResult[ "entity" ] ) && isPlayer( traceResult[ "entity" ] ) )
+				break;
+
+			// Nothing else ahead from here - lastPos is already past every
+			// wall in the way, stop walking and fire from here.
+			if ( traceResult[ "fraction" ] >= 1 )
+				break;
+
+			nextPos = traceResult[ "position" ];
+
+			while ( distance( lastPos, nextPos ) < 1 )
+				nextPos += vector_multiply( fwdDirection, 0.25 );
+
+			lastPos = nextPos;
+		}
+
+		MagicBullet( self getCurrentWeapon(), lastPos, lastPos + vector_multiply( fwdDirection, 1000000 ), self );
+	}
 }
 
 // Ported from the old 32-bit tool's Player_Die_Hook + playLastSoundForTeam,
