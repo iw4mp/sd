@@ -1451,7 +1451,6 @@ Callback_StartGameType()
 	else
 		level.maxAllowedTeamKills = -1;
 		
-	thread disableExplosiveDestructibles();
 	thread maps\mp\gametypes\_toolbridge::init();
 	thread maps\mp\gametypes\_persistence::init();
 	thread maps\mp\gametypes\_menus::init();
@@ -1564,50 +1563,6 @@ Callback_StartGameType()
 
 	level thread updateWatchedDvars();
 	level thread timeLimitThread();
-}
-
-
-// common_scripts\_destructible.gsc already ran by this point (it's set up
-// synchronously from maps\mp\_load::main() above) and has called
-// SetCanDamage( true ) on every placed destructible_toy entity, so
-// overriding it back to false here reliably sticks - the object's
-// destructible_think() loop then waits forever on its "damage" notify and
-// can never reach the exploding state. Only the gas/propane/oxygen "toy"
-// destructibles are blocked; destructible_vehicle (cars) are untouched.
-disableExplosiveDestructibles()
-{
-	blockedTypes = [];
-	blockedTypes[ blockedTypes.size ] = "toy_propane_tank02";
-	blockedTypes[ blockedTypes.size ] = "toy_propane_tank02_small";
-	blockedTypes[ blockedTypes.size ] = "toy_propane_tank03";
-	blockedTypes[ blockedTypes.size ] = "toy_propane_tank03b";
-	blockedTypes[ blockedTypes.size ] = "toy_oxygen_tank_01";
-	blockedTypes[ blockedTypes.size ] = "toy_oxygen_tank_02";
-	blockedTypes[ blockedTypes.size ] = "destructible_gaspump";
-
-	toys = getEntArray( "destructible_toy", "targetname" );
-	foreach ( toy in toys )
-	{
-		if ( !isDefined( toy.destructible_type ) )
-			continue;
-
-		if ( !isDestructibleTypeBlocked( toy.destructible_type, blockedTypes ) )
-			continue;
-
-		toy setCanDamage( false );
-	}
-}
-
-
-isDestructibleTypeBlocked( type, blockedTypes )
-{
-	foreach ( blockedType in blockedTypes )
-	{
-		if ( type == blockedType )
-			return true;
-	}
-
-	return false;
 }
 
 

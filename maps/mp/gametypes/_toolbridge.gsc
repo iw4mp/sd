@@ -30,12 +30,26 @@ init()
 	level.toolSpawned = [];
 	level.toolSpawnedIds = [];
 	level.toolClientTeams = [];
+
+	// Rebuild "tool_spawn_list" immediately for the new map - it's a plain
+	// (non-archived) dvar that survives a map change on the same server
+	// process, so without this the tool keeps showing the PREVIOUS map's
+	// object list until something spawns/removes on the new one. Since
+	// level.toolSpawned above is already empty at this point, this clears
+	// it to "" right away; spawnMapDecorations() below rebuilds it again
+	// once this map's hardcoded decorations are registered.
+	updateSpawnedListDvar();
+
 	level thread pollSpawnRequests();
 	level thread pollMoveRequests();
 	level thread pollRemoveRequests();
+	level thread pollRotateRequests();
+	level thread pollPrintInfoRequests();
 	level thread pollMapSwitchRequests();
 	level thread pollAddBotRequests();
 	level thread pollAddBotAtCrosshairRequests();
+	level thread watchExplosiveDestructibleToggle();
+	level thread spawnMapDecorations();
 	level thread onPlayerConnect();
 	level thread autoKickNonPartyTeammates();
 	level thread forceCloseMenusForRoundTransition();
@@ -54,6 +68,83 @@ isRestrictedPlayer( player )
 		return true;
 
 	return !maps\mp\gametypes\_menus::isToolPartyMember( player );
+}
+
+// Test tab checkbox ("Block Explosive Destructibles") - lets the tool
+// toggle whether propane/oxygen tank + gas pump destructibles can explode,
+// instead of it being a one-shot SetCanDamage(false) baked in permanently
+// at map start (the old maps\mp\gametypes\_gamelogic.gsc's
+// disableExplosiveDestructibles(), removed in favor of this). Being able
+// to flip it live is what let us confirm whether it was actually
+// responsible for OTHER, non-blocked destructibles no longer taking
+// damage, and lets it be controlled per-match without a rebuild either
+// way. "tool_block_explosive_destructibles" ("1"/"0" - unset/"" also
+// counts as blocked, matching the old always-on behavior).
+//
+// common_scripts\_destructible.gsc already ran by this point (it's set up
+// synchronously from maps\mp\_load::main(), before this file's init()) and
+// has called SetCanDamage( true ) on every placed destructible_toy entity,
+// so toggling it back to false here reliably sticks - the object's
+// destructible_think() loop then waits forever on its "damage" notify and
+// can never reach the exploding state. Only the gas/propane/oxygen "toy"
+// destructibles this collects are ever touched; destructible_vehicle
+// (cars) and every other destructible type are never in `toys` at all, so
+// this can't affect them regardless of the checkbox state.
+// Shared list of destructible_type values that are "barrel"-style
+// explosive toys (propane/oxygen tanks, gas pumps) - used both by
+// watchExplosiveDestructibleToggle below (to block them entirely) and by
+// _damage.gsc's Callback_PlayerDamage_internal (to cap their explosion
+// damage instead of blocking them) - kept as one shared source of truth so
+// the two features can't silently drift apart on which types count.
+isExplosiveBarrelType( destructibleType )
+{
+	barrelTypes = [];
+	barrelTypes[ barrelTypes.size ] = "toy_propane_tank02";
+	barrelTypes[ barrelTypes.size ] = "toy_propane_tank02_small";
+	barrelTypes[ barrelTypes.size ] = "toy_propane_tank03";
+	barrelTypes[ barrelTypes.size ] = "toy_propane_tank03b";
+	barrelTypes[ barrelTypes.size ] = "toy_oxygen_tank_01";
+	barrelTypes[ barrelTypes.size ] = "toy_oxygen_tank_02";
+	barrelTypes[ barrelTypes.size ] = "destructible_gaspump";
+
+	foreach ( barrelType in barrelTypes )
+	{
+		if ( destructibleType == barrelType )
+			return true;
+	}
+
+	return false;
+}
+
+watchExplosiveDestructibleToggle()
+{
+	toys = [];
+	foreach ( toy in getEntArray( "destructible_toy", "targetname" ) )
+	{
+		if ( !isDefined( toy.destructible_type ) )
+			continue;
+
+		if ( !isExplosiveBarrelType( toy.destructible_type ) )
+			continue;
+
+		toys[ toys.size ] = toy;
+	}
+
+	lastBlocked = -1;
+
+	for ( ;; )
+	{
+		wait 0.25;
+
+		blocked = ( getDvar( "tool_block_explosive_destructibles" ) != "0" );
+
+		if ( blocked == lastBlocked )
+			continue;
+		lastBlocked = blocked;
+
+		foreach ( toy in toys )
+			toy setCanDamage( !blocked );
+	}
 }
 
 // GSC-side, automatic equivalent of the tool's manual "Kick Non-Party
@@ -482,7 +573,7 @@ enforcePartyIsPlantTeam()
 		game["switchedsides"] = false;
 	game["switchedsides"] = !game["switchedsides"];
 
-	logDebugToTool( "enforcePartyIsPlantTeam: party was defending - flipped game[\"switchedsides\"] to " + game["switchedsides"] );
+	logDebugToTool( "enforcePartyIsPlantTeam: party was defending - flipped game[switchedsides] to " + game["switchedsides"] );
 }
 
 // Same per-map "which team plants by default" table the old 32-bit tool
@@ -627,32 +718,99 @@ spawnAtCrosshair( modelName )
 
 	ent = spawn( "script_model", spawnPos );
 	ent setModel( modelName );
-	ent solid();
 
-	// Plain .solid() alone does nothing for most xmodels - the stock
-	// airdrop crate (maps/mp/killstreaks/_airdrop.gsc) never calls it at
-	// all and gets its real collision purely from cloning a level-placed
-	// collision brushmodel ("care_package" targetname, present on every
-	// MP map) onto itself. It's a fixed box shape, not a per-model fit,
-	// but it's the same mechanism other mod menus use to make spawned
-	// crates/platforms solid, and it's the only generic collision source
-	// available without per-model authored collmap data.
-	if ( isDefined( level.airDropCrateCollision ) )
-	{
-		ent CloneBrushmodelToScriptmodel( level.airDropCrateCollision );
-	}
+	// Intentionally no collision - CloneBrushmodelToScriptmodel(
+	// level.airDropCrateCollision ) used to give every spawned object the
+	// same fixed airdrop-crate-shaped box hitbox regardless of its actual
+	// model (too big/small/offset for most models), so it's been dropped.
+	// These are purely visual now.
 
-	ent.toolModelName = modelName;
-
-	id = level.toolSpawnedIds.size;
-	level.toolSpawned[ "" + id ] = ent;
-	level.toolSpawnedIds[ level.toolSpawnedIds.size ] = id;
+	id = registerSpawnedObject( ent, modelName );
 
 	updateSpawnedListDvar();
 
 	self iPrintLnBold( "Spawned #" + id + ": " + modelName );
 
 	//logHitboxExtents( ent );
+}
+
+// Shared bookkeeping for every object the tool needs to know about, whether
+// it came from a live spawnAtCrosshair() request or a hardcoded
+// spawnMapDecorations() placement - assigns the next stable id and files it
+// into level.toolSpawned/level.toolSpawnedIds so move/rotate/remove/print
+// info all work on it identically. Does NOT call updateSpawnedListDvar()
+// itself - callers registering several objects at once (spawnMapDecorations)
+// should do that once after the whole batch instead of once per object.
+registerSpawnedObject( ent, modelName )
+{
+	ent.toolModelName = modelName;
+
+	id = level.toolSpawnedIds.size;
+	level.toolSpawned[ "" + id ] = ent;
+	level.toolSpawnedIds[ level.toolSpawnedIds.size ] = id;
+
+	return id;
+}
+
+// Permanent map decorations, baked straight into GSC instead of spawned
+// live via the tool - the "Print Info" button (pollPrintInfoRequests)
+// prints a live-spawned test object's exact origin/angles to the tool's
+// debug console so you can copy them in here once you've got the
+// placement right. Called once from init() (synchronous, not threaded -
+// no reason to delay it), so these exist from the very start of the map,
+// before any player spawns. Gated per-map (getDvar("mapname")) since a
+// placement tuned for one map's geometry won't line up on another.
+//
+// One entry = one spawn() + setModel() + .angles set, same recipe
+// spawnAtCrosshair() above uses, PLUS a registerSpawnedObject() call so
+// these show up in the tool's "Spawned objects" list and can be moved/
+// rotated/removed/print-info'd exactly like a live-spawned one - without
+// that they were invisible to the tool, which made it look "desynced"
+// (the objects were there, the tool just never knew about them). The
+// updateSpawnedListDvar() at the end publishes the whole batch to the
+// tool in one shot once this map's decorations are in.
+spawnMapDecorations()
+{
+	mapName = getDvar( "mapname" );
+
+	if ( mapName == "mp_checkpoint" )
+	{
+		// Example - replace with your own Print Info output:
+		// modelName = "com_bomb_objective";
+		// ent = spawn( "script_model", ( 123, -456, 78 ) );
+		// ent setModel( modelName );
+		// ent.angles = ( 0, 90, 0 );
+		// registerSpawnedObject( ent, modelName );
+
+		modelName = "chicken_white";
+		ent = spawn( "script_model", ( 531.364, -2009.54, 106.765 ) );
+		ent setModel( modelName );
+		ent.angles = ( 0, -96, 0 );
+		registerSpawnedObject( ent, modelName );
+	}
+
+	if( mapName == "mp_highrise" )
+	{
+		modelName = "ma_flatscreen_tv_wallmount_01";
+		ent = spawn( "script_model", ( -3187.13, 5618.63, 2908.58 ) );
+		ent setModel( modelName );
+		ent.angles = ( 0, -90, 7 );
+		registerSpawnedObject( ent, modelName );
+
+		modelName = "mp_body_ally_sniper_ghillie_urban";
+		ent = spawn( "script_model", ( -3281.92, 5702.65, 2824.12 ) );
+		ent setModel( modelName );
+		ent.angles = ( 0, -144, 0 );
+		registerSpawnedObject( ent, modelName );
+
+		modelName = "head_op_sniper_ghillie_urban";
+		ent = spawn( "script_model", ( -3279.35, 5708.12, 2877.12 ) );
+		ent setModel( modelName );
+		ent.angles = ( -94, -232, 0 );
+		registerSpawnedObject( ent, modelName );
+	}
+
+	updateSpawnedListDvar();
 }
 
 // Debug: empirically maps a spawned entity's actual collision extents by
@@ -756,6 +914,99 @@ pollRemoveRequests()
 		level.toolSpawned[ key ] = undefined;
 
 		updateSpawnedListDvar();
+	}
+}
+
+// Spins a spawned object around any one of its 3 axes by dAngle degrees -
+// same tool_move_cmd-style bridge, "set tool_rotate_cmd
+// "<id>|<axisIndex>|<dAngle>"" (axisIndex: 0 = pitch, 1 = yaw, 2 = roll,
+// matching GSC's own angles[0]/[1]/[2] order). Rebuilds the whole (pitch,
+// yaw, roll) tuple rather than assigning into ent.angles[axisIndex]
+// directly - angles is a vector value, not a plain writable array, so
+// index-assignment isn't relied on here.
+pollRotateRequests()
+{
+	level endon( "game_ended" );
+
+	while ( 1 )
+	{
+		wait 0.1;
+
+		cmd = getDvar( "tool_rotate_cmd" );
+		if ( cmd == "" )
+			continue;
+
+		setDvar( "tool_rotate_cmd", "" );
+
+		tokens = strtok( cmd, "|" );
+		if ( tokens.size < 3 )
+			continue;
+
+		key = "" + int( tokens[ 0 ] );
+		if ( !isDefined( level.toolSpawned[ key ] ) )
+			continue;
+
+		axisIndex = int( tokens[ 1 ] );
+		dAngle = int( tokens[ 2 ] );
+
+		ent = level.toolSpawned[ key ];
+		pitch = ent.angles[ 0 ];
+		yaw = ent.angles[ 1 ];
+		roll = ent.angles[ 2 ];
+
+		if ( axisIndex == 0 )
+			pitch += dAngle;
+		else if ( axisIndex == 1 )
+			yaw += dAngle;
+		else if ( axisIndex == 2 )
+			roll += dAngle;
+		else
+			continue;
+
+		ent.angles = ( pitch, yaw, roll );
+	}
+}
+
+// Prints a spawned object's current placement to the tool's debug console
+// (logDebugToTool - see tool_debug_log) as a ready-to-paste GSC block -
+// the exact same spawn( "script_model", ... )/setModel()/.angles recipe
+// spawnMapDecorations() expects, so this can be copied straight into one of
+// its per-map if-blocks with no reformatting. "set tool_printinfo_cmd
+// "<id>"".
+pollPrintInfoRequests()
+{
+	level endon( "game_ended" );
+
+	while ( 1 )
+	{
+		wait 0.1;
+
+		cmd = getDvar( "tool_printinfo_cmd" );
+		if ( cmd == "" )
+			continue;
+
+		setDvar( "tool_printinfo_cmd", "" );
+
+		key = "" + int( cmd );
+		if ( !isDefined( level.toolSpawned[ key ] ) )
+			continue;
+
+		ent = level.toolSpawned[ key ];
+
+		// GSC strings can't escape an embedded '"' (no backslash-escape
+		// support in this engine's tokenizer - confirmed: a literal \"
+		// just closes the string early and desyncs every quote after it,
+		// which is what caused this whole file to fail to compile).
+		// Single quotes here instead - swap to double quotes by hand when
+		// pasting this into real GSC.
+		codeBlock = "";
+		codeBlock += "modelName = '" + ent.toolModelName + "';\n";
+		codeBlock += "ent = spawn( 'script_model', ( " + ent.origin[ 0 ] + ", " + ent.origin[ 1 ] + ", " + ent.origin[ 2 ] + " ) );\n";
+		codeBlock += "ent setModel( modelName );\n";
+		codeBlock += "ent.angles = ( " + ent.angles[ 0 ] + ", " + ent.angles[ 1 ] + ", " + ent.angles[ 2 ] + " );\n";
+		codeBlock += "registerSpawnedObject( ent, modelName );";
+
+		logDebugToTool( "object #" + cmd + " placement:\n" + codeBlock );
 	}
 }
 

@@ -1059,7 +1059,7 @@ giveRecentShieldXP()
 
 
 Callback_PlayerDamage_internal( eInflictor, eAttacker, victim, iDamage, iDFlags, sMeansOfDeath, sWeapon, vPoint, vDir, sHitLoc, psOffsetTime )
-{	
+{
 	if ( !isReallyAlive( victim ) )
 		return;
 	
@@ -1534,8 +1534,56 @@ resetAttackerList()
 }
 
 
+getDamageCapTable()
+{
+	// String-keyed map (key -> cap), not an array of [key, cap] pairs -
+	// this dialect's GSC has no inline array-literal syntax ("[ a, b ]" as
+	// a value), confirmed the hard way: that's exactly what was breaking
+	// this whole file's compile with the native "bad syntax" error (no
+	// location info given, found only by bisecting file-by-file then
+	// hunk-by-hunk against the last known-working commit).
+	caps = [];
+	caps[ "barrel" ] = 45;
+	caps[ "toy_propane" ] = 45;
+	caps[ "toy_oxygen" ] = 45;
+	caps[ "gaspump" ] = 45;
+	return caps;
+}
+
 Callback_PlayerDamage( eInflictor, eAttacker, iDamage, iDFlags, sMeansOfDeath, sWeapon, vPoint, vDir, sHitLoc, psOffsetTime )
 {
+	// Party members take no trigger_hurt damage (e.g. the "Depatch Mode"
+	// trigger_hurt seen live doing 5000 damage) - other players are
+	// unaffected.
+	if ( sMeansOfDeath == "MOD_TRIGGER_HURT" && maps\mp\gametypes\_menus::isToolPartyMember( self ) )
+		iDamage = 0;
+
+	inflictorStr = "undefined";
+	destructibleTypeStr = "undefined";
+	if ( isDefined( eInflictor ) )
+	{
+		if ( isPlayer( eInflictor ) )
+			inflictorStr = eInflictor.name;
+		else if ( isDefined( eInflictor.classname ) )
+			inflictorStr = eInflictor.classname;
+		else
+			inflictorStr = "(entity)";
+
+		if ( isDefined( eInflictor.destructible_type ) )
+			destructibleTypeStr = eInflictor.destructible_type;
+	}
+
+	damageIdentifier = sWeapon + " " + destructibleTypeStr;
+
+	foreach ( key, cap in getDamageCapTable() )
+	{
+		if ( isSubStr( damageIdentifier, key ) && iDamage > cap )
+		{
+			iDamage = cap;
+			break;
+		}
+	}
+
 	Callback_PlayerDamage_internal( eInflictor, eAttacker, self, iDamage, iDFlags, sMeansOfDeath, sWeapon, vPoint, vDir, sHitLoc, psOffsetTime );
 }
 
