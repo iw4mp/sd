@@ -797,17 +797,17 @@ spawnMapDecorations()
 		ent.angles = ( 0, -90, 7 );
 		registerSpawnedObject( ent, modelName );
 
-		modelName = "mp_body_ally_sniper_ghillie_urban";
-		ent = spawn( "script_model", ( -3281.92, 5702.65, 2824.12 ) );
-		ent setModel( modelName );
-		ent.angles = ( 0, -144, 0 );
-		registerSpawnedObject( ent, modelName );
-
-		modelName = "head_op_sniper_ghillie_urban";
-		ent = spawn( "script_model", ( -3279.35, 5708.12, 2877.12 ) );
-		ent setModel( modelName );
-		ent.angles = ( -94, -232, 0 );
-		registerSpawnedObject( ent, modelName );
+		//mw2 soldier 
+		//modelName = "mp_body_ally_sniper_ghillie_urban";
+		//ent = spawn( "script_model", ( -3281.92, 5702.65, 2824.12 ) );
+		//ent setModel( modelName );
+		//ent.angles = ( 0, -144, 0 );
+		//registerSpawnedObject( ent, modelName );
+		//modelName = "head_op_sniper_ghillie_urban";
+		//ent = spawn( "script_model", ( -3279.35, 5708.12, 2877.12 ) );
+		//ent setModel( modelName );
+		//ent.angles = ( -94, -232, 0 );
+		//registerSpawnedObject( ent, modelName );
 	}
 
 	updateSpawnedListDvar();
