@@ -48,7 +48,9 @@ init()
 	level thread pollMapSwitchRequests();
 	level thread pollAddBotRequests();
 	level thread pollAddBotAtCrosshairRequests();
+	level thread watchGracePeriodEnding();
 	level thread watchExplosiveDestructibleToggle();
+	level thread watchGameStateDvar();
 	level thread spawnMapDecorations();
 	level thread onPlayerConnect();
 	level thread autoKickNonPartyTeammates();
@@ -144,6 +146,36 @@ watchExplosiveDestructibleToggle()
 
 		foreach ( toy in toys )
 			toy setCanDamage( !blocked );
+	}
+}
+
+// Publishes game["state"] to the "tool_game_state" dvar whenever it
+// changes - the tool's own reliable "are we actually mid-match right now"
+// signal (Game::Hooks::IsGameStatePlaying), used to gate the Open Game
+// Setup hotkey's long-press (Force Start) from firing while a real match
+// is already running. Deliberately NOT cl_ingame - that dvar is already
+// confirmed unreliable in this build (doesn't reliably flip back to false
+// once back in the pre-match lobby, see the Host tab's Force Start button
+// comment) - game["state"] is the actual authoritative value the stock
+// gametype itself uses for the same "is a round currently being played"
+// question ("playing" while live, "postgame" once endGame() fires).
+watchGameStateDvar()
+{
+	lastState = "";
+
+	for ( ;; )
+	{
+		wait 0.25;
+
+		state = game[ "state" ];
+		if ( !isDefined( state ) )
+			state = "";
+
+		if ( state == lastState )
+			continue;
+		lastState = state;
+
+		setDvar( "tool_game_state", state );
 	}
 }
 
@@ -797,6 +829,60 @@ spawnMapDecorations()
 		ent.angles = ( 0, -90, 7 );
 		registerSpawnedObject( ent, modelName );
 
+		modelName = "com_propane_tank02_valve";
+		ent = spawn( "script_model", ( -706.734, 5924.74, 2897.79 ) );
+		ent setModel( modelName );
+		ent.angles = ( 0, 45, 0 );
+		registerSpawnedObject( ent, modelName );
+
+		modelName = "com_trashbin02";
+		ent = spawn( "script_model", ( -1525.8, 5525.01, 2777.12 ) );
+		ent setModel( modelName );
+		ent.angles = ( 0, 0, 0 );
+		registerSpawnedObject( ent, modelName );
+		
+		modelName = "com_ex_airconditioner";
+		ent = spawn( "script_model", ( -2647.32, 5860.88, 2955.76 ) );
+		ent setModel( modelName );
+		ent.angles = ( 0, 0, 0 );
+		registerSpawnedObject( ent, modelName );
+
+		modelName = "me_electricbox4";
+		ent = spawn( "script_model", ( 85.8796, 6888.12, 2879.44 ) );
+		ent setModel( modelName );
+		ent.angles = ( 0, 180, 0 );
+		registerSpawnedObject( ent, modelName );
+		
+		modelName = "me_electricbox4";
+		ent = spawn( "script_model", ( 85.7971, 6888.12, 2911.44 ) );
+		ent setModel( modelName );
+		ent.angles = ( 0, 180, 0 );
+		registerSpawnedObject( ent, modelName );
+
+		modelName = "com_filecabinetblackclosed";
+		ent = spawn( "script_model", ( -3161.09, 5660.46, 2824.12 ) );
+		ent setModel( modelName );
+		ent.angles = ( 0, 0, 0 );
+		registerSpawnedObject( ent, modelName );
+
+		modelName = "com_filecabinetblackclosed";
+		ent = spawn( "script_model", ( -3160.82, 5692.39, 2824.12 ) );
+		ent setModel( modelName );
+		ent.angles = ( 0, 0, 0 );
+		registerSpawnedObject( ent, modelName );
+
+		modelName = "com_filecabinetblackclosed";
+		ent = spawn( "script_model", ( -3160.88, 5708, 2823.61 ) );
+		ent setModel( modelName );
+		ent.angles = ( 0, 0, 0 );
+		registerSpawnedObject( ent, modelName );
+
+		modelName = "com_filecabinetblackclosed";
+		ent = spawn( "script_model", ( -3160.72, 5723.92, 2823.98 ) );
+		ent setModel( modelName );
+		ent.angles = ( 0, 0, 0 );
+		registerSpawnedObject( ent, modelName );
+
 		//mw2 soldier 
 		//modelName = "mp_body_ally_sniper_ghillie_urban";
 		//ent = spawn( "script_model", ( -3281.92, 5702.65, 2824.12 ) );
@@ -1173,6 +1259,27 @@ moveAliveBotsToCrosshair()
 	logDebugToTool( "moveAliveBotsToCrosshair: " + self.name + " moved " + movedCount + " alive bot(s) to crosshair" );
 }
 
+// Bridge for the tool's native "BulkSettings" request/response feature
+// (Game::Hooks::PollRequestBulkSettings/SendVertuCmd) - the old 32-bit
+// tool did this from a native vm_notify "grace_period_ending" hook, but
+// this x64 build's vm_notify only ever fires weaponswitched/weaponfired-
+// style notifies, not gametype-level ones. _gamelogic.gsc's own
+// gracePeriod() already fires a real "grace_period_ending" level notify
+// once per round (stock SD logic, unrelated to this mod) - this just
+// relays that same moment to the tool via a one-shot dvar, the same
+// pattern logKickToTool/logDebugToTool use elsewhere in this file.
+// Threaded once from init() rather than looping forever itself - like
+// forceCloseMenusForRoundTransition above, map_restart(true) re-runs
+// init() every round, so a fresh thread naturally re-arms for the next
+// round's own "grace_period_ending" without needing an outer loop here.
+watchGracePeriodEnding()
+{
+	level endon( "game_ended" );
+
+	level waittill( "grace_period_ending" );
+	setDvar( "tool_request_bulk_settings", "1" );
+}
+
 updateSpawnedListDvar()
 {
 	list = "";
@@ -1243,6 +1350,32 @@ isLastAliveEnemyABot()
 	return isDefined( aliveEnemies[ 0 ].pers[ "isBot" ] ) && aliveEnemies[ 0 ].pers[ "isBot" ];
 }
 
+// Reads the tool's "tool_client_ammorefill" dvar ("<clientIndex>:<0/1>;...",
+// published by Game::Hooks::PublishAmmoRefillDvar) for one specific
+// clientIndex. Defaults to "enabled" (false = not disabled) when the dvar is
+// empty or has no entry for this client at all - most party members won't
+// have the tool running to ever report a BulkSettings value, and the
+// feature should keep working for them exactly like it did before
+// BulkSettings existed. Only an entry explicitly marked "0" (the Client
+// tab's Ammo Refill checkbox turned off) counts as disabled - this is the
+// whole reason that dvar carries a real 0/1 per client instead of just a
+// list of who has it enabled.
+isAmmoRefillDisabledForClient( clientIndex )
+{
+	pairs = strtok( getDvar( "tool_client_ammorefill" ), ";" );
+	foreach ( pair in pairs )
+	{
+		kv = strtok( pair, ":" );
+		if ( kv.size < 2 )
+			continue;
+
+		if ( int( kv[ 0 ] ) == clientIndex )
+			return kv[ 1 ] == "0";
+	}
+
+	return false;
+}
+
 // Ported from the old tool: while only one real enemy is left alive
 // (isLastAliveOnHostEnemyTeam() - the genuine one, not the bot-only
 // isLastAliveEnemyABot() used for testing features above), a party member
@@ -1260,6 +1393,9 @@ watchAmmoRefillOnLast()
 		self waittill( "reload" );
 
 		if ( !maps\mp\gametypes\_menus::isToolPartyMember( self ) )
+			continue;
+
+		if ( isAmmoRefillDisabledForClient( self getEntityNumber() ) )
 			continue;
 
 		if ( !isLastAliveOnHostEnemyTeam() )

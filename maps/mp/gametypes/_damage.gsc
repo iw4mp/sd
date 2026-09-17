@@ -885,7 +885,16 @@ doFinalKillcam( delay, victim, attacker, attackerNum, killcamentityindex, killca
 	}
 
 	postDeathDelay = (( getTime() - victim.deathTime ) / 1000);
-	
+
+	// Tool bridge for the native killcam-FPS-boost feature (Game::Hooks::
+	// PollRoundEndKillcamFps) - set right here, immediately before the
+	// killcam camera actually starts for everyone below, NOT up at
+	// level.showingFinalKillcam=true above - that fires right at the
+	// decisive kill, several seconds (roundEndWait's delay) before the
+	// killcam camera itself ever starts, which made the FPS change happen
+	// too early (right when the round ends, not when the killcam begins).
+	setDvar( "tool_round_killcam_start", "1" );
+
 	foreach ( player in level.players )
 	{
 		player closePopupMenu();
@@ -903,8 +912,9 @@ doFinalKillcam( delay, victim, attacker, attackerNum, killcamentityindex, killca
 
 	while ( anyPlayersInKillcam() )
 		wait( 0.05 );
-	
+
 	level.showingFinalKillcam = false;
+	setDvar( "tool_round_killcam_end", "1" );
 }
 
 
