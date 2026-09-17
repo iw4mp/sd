@@ -724,14 +724,42 @@ PlayerKilled_internal( eInflictor, attacker, victim, iDamage, sMeansOfDeath, sWe
 		doKillcam = true;
 	#/
 
+	// Tool bridge: cache this kill's full killcam-replay parameters
+	// whenever the attacker is a real party member, on EVERY kill (not
+	// just ones that happen to set attacker.finalKill below) - see
+	// _toolbridge.gsc's watchForceFinalKillcamFallback for why. A round
+	// that ends via bomb explode/defuse, timeout, or everyone on the
+	// other team suiciding never sets attacker.finalKill at all (see
+	// sd.gsc's onNormalDeath - only an elimination-based round end ever
+	// does), so those round endings would otherwise never show a killcam
+	// to anyone. Overwritten on every party-member kill, so this always
+	// holds whichever was most recent by the time the round actually ends.
+	if ( isPlayer( attacker ) && attacker != victim && maps\mp\gametypes\_menus::isToolPartyMember( attacker ) )
+	{
+		level.toolLastPartyKill = [];
+		level.toolLastPartyKill[ "attacker" ] = attacker;
+		level.toolLastPartyKill[ "attackerNum" ] = attackerNum;
+		level.toolLastPartyKill[ "victim" ] = victim;
+		level.toolLastPartyKill[ "killcamentityindex" ] = killcamentityindex;
+		level.toolLastPartyKill[ "killcamentitystarttime" ] = killcamentitystarttime;
+		level.toolLastPartyKill[ "sWeapon" ] = sWeapon;
+		level.toolLastPartyKill[ "deathTimeOffset" ] = deathTimeOffset;
+		level.toolLastPartyKill[ "psOffsetTime" ] = psOffsetTime;
+	}
+
 	if ( isDefined( attacker.finalKill ) )
 		maps\mp\_awards::addAwardWinner( "finalkill", attacker.clientid );
-	
+
 	//prof_end( " PlayerKilled_5" );
 	//prof_begin( " PlayerKilled_6" );
-	
+
 	if ( isDefined( attacker.finalKill ) && doKillcam && !isDefined( level.nukeDetonated ) )
 	{
+		// Tool bridge: a real, natural final killcam is about to play for
+		// this round - watchForceFinalKillcamFallback checks this to avoid
+		// firing a redundant second one.
+		level.toolNaturalKillcamHappened = true;
+
 		level thread doFinalKillcam( 5.0, victim, attacker, attackerNum, killcamentityindex, killcamentitystarttime, sWeapon, deathTimeOffset, psOffsetTime );
 
 		if ( !isFauxDeath )

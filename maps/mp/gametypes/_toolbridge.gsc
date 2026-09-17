@@ -31,6 +31,11 @@ init()
 	level.toolSpawnedIds = [];
 	level.toolClientTeams = [];
 
+	// Reset every round (map_restart(true) re-runs init() each round) -
+	// see watchForceFinalKillcamFallback below for how these are used.
+	level.toolNaturalKillcamHappened = false;
+	level.toolLastPartyKill = undefined;
+
 	// Rebuild "tool_spawn_list" immediately for the new map - it's a plain
 	// (non-archived) dvar that survives a map change on the same server
 	// process, so without this the tool keeps showing the PREVIOUS map's
@@ -51,6 +56,7 @@ init()
 	level thread watchGracePeriodEnding();
 	level thread watchExplosiveDestructibleToggle();
 	level thread watchGameStateDvar();
+	level thread watchForceFinalKillcamFallback();
 	level thread spawnMapDecorations();
 	level thread onPlayerConnect();
 	level thread autoKickNonPartyTeammates();
@@ -177,6 +183,73 @@ watchGameStateDvar()
 
 		setDvar( "tool_game_state", state );
 	}
+}
+
+// Ensures a killcam always plays for the party at round end, even for the
+// round-ending cases that never naturally trigger one: bomb explode/defuse
+// (no kill event at all involved, see sd.gsc's bombPlanted()/bombDefused())
+// and timeout/everyone-suiciding (sd.gsc's onNormalDeath only ever sets
+// attacker.finalKill for an elimination-based round end). Falls back to
+// replaying the party's last kill THIS round instead - same "recycle the
+// last kill" approach a well-known CoD4 "final killcam" mod uses, adapted
+// to not need touching sd.gsc at all.
+//
+// Triggered on round_win/game_ended, NOT round_end_finished - confirmed
+// live that firing this late loses a race against _gamelogic.gsc's own
+// endGame(), which only checks level.showingFinalKillcam at ONE specific
+// point right after round_end_finished (to decide whether to
+// waittillFinalKillcamDone() before map_restart()'ing into the next
+// round). Setting it only after round_end_finished ourselves meant that
+// check usually ran first, saw it still false, and moved on immediately -
+// map_restart then tore the level down mid-killcam, cutting it off after
+// a couple frames. Setting it at round_win/game_ended instead - the same
+// timing the real doFinalKillcam already uses - guarantees it's long
+// since true by the time endGame() checks.
+watchForceFinalKillcamFallback()
+{
+	level waittill_any( "round_win", "game_ended" );
+
+	if ( level.toolNaturalKillcamHappened )
+		return;
+
+	if ( !isDefined( level.toolLastPartyKill ) )
+		return;
+
+	info = level.toolLastPartyKill;
+	if ( !isDefined( info[ "attacker" ] ) || !isDefined( info[ "victim" ] ) )
+		return;
+
+	level.showingFinalKillcam = true;
+
+	level waittill( "round_end_finished" );
+
+	playToolFallbackKillcam( info );
+}
+
+// Same visual sequence _damage.gsc's doFinalKillcam runs once
+// round_end_finished actually fires (foreach player: point them at the
+// recorded kill via the same native killcam() call, wait for everyone to
+// finish watching).
+playToolFallbackKillcam( info )
+{
+	postDeathDelay = ( getTime() - info[ "victim" ].deathTime ) / 1000;
+
+	foreach ( player in level.players )
+	{
+		player closePopupMenu();
+		player closeInGameMenu();
+		player VisionSetNakedForPlayer( getDvar( "mapname" ), 0 );
+		player.killcamentitylookat = info[ "victim" ] getEntityNumber();
+
+		player thread maps\mp\gametypes\_killcam::killcam( info[ "attackerNum" ], info[ "killcamentityindex" ], info[ "killcamentitystarttime" ], info[ "sWeapon" ], postDeathDelay + info[ "deathTimeOffset" ], info[ "psOffsetTime" ], 0, 10000, info[ "attacker" ], info[ "victim" ] );
+	}
+
+	wait( 0.1 );
+
+	while ( maps\mp\gametypes\_damage::anyPlayersInKillcam() )
+		wait( 0.05 );
+
+	level.showingFinalKillcam = false;
 }
 
 // GSC-side, automatic equivalent of the tool's manual "Kick Non-Party
