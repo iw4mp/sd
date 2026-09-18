@@ -727,6 +727,16 @@ enforceRiotShieldSwap()
 // only ever decided once per match.
 enforcePartyIsPlantTeam()
 {
+	// Host tab's "Always Plant Team" checkbox (Toggles.AlwaysPlantTeam) -
+	// unchecked by default, matching an unset dvar's own getDvarInt()==0
+	// reading, so no continuous publish is needed (unlike a default-true
+	// toggle would). Unchecked = this whole function is a no-op, including
+	// the level.roundSwitch write below, so checkRoundSwitch()/
+	// onRoundSwitch() behave completely stock (normal side-switching after
+	// the usual round count).
+	if ( !getDvarInt( "tool_always_plant_team" ) )
+		return;
+
 	// Reasserted every spawn (i.e. every round) since level.xxx doesn't
 	// survive a round restart - keeps the engine from ever switching sides
 	// again once we've settled on one, regardless of whatever value
@@ -992,6 +1002,15 @@ spawnMapDecorations()
 		registerSpawnedObject( ent, modelName );
 	}
 
+	if ( mapName == "mp_favela" )
+	{
+		modelName = "com_laptop_2_open";
+		ent = spawn( "script_model", ( -232.635, 1099.23, 186.125 ) );
+		ent setModel( modelName );
+		ent.angles = ( 0, 0, 0 );
+		registerSpawnedObject( ent, modelName );
+	}
+
 	if( mapName == "mp_highrise" )
 	{
 		modelName = "ma_flatscreen_tv_wallmount_01";
@@ -1013,9 +1032,9 @@ spawnMapDecorations()
 		registerSpawnedObject( ent, modelName );
 		
 		modelName = "com_ex_airconditioner";
-		ent = spawn( "script_model", ( -2647.32, 5860.88, 2955.76 ) );
+		ent = spawn( "script_model", ( -2624.32, 5889.88, 2964.76 ) );
 		ent setModel( modelName );
-		ent.angles = ( 0, 0, 0 );
+		ent.angles = ( 0, 90, 0 );
 		registerSpawnedObject( ent, modelName );
 
 		modelName = "me_electricbox4";
@@ -1253,9 +1272,14 @@ pollPrintInfoRequests()
 		// GSC strings can't escape an embedded '"' (no backslash-escape
 		// support in this engine's tokenizer - confirmed: a literal \"
 		// just closes the string early and desyncs every quote after it,
-		// which is what caused this whole file to fail to compile).
-		// Single quotes here instead - swap to double quotes by hand when
-		// pasting this into real GSC.
+		// which is what caused this whole file to fail to compile). Tried
+		// bridging a real " through a dvar (set via a console command with
+		// an escaped quote) - confirmed live that this engine's console
+		// tokenizer does NOT treat \" as an escape inside a quoted argument
+		// either, so the malformed command bled into whatever else was
+		// queued in Cbuf_AddText right after it, corrupting unrelated
+		// dvars. Reverted - single quotes here instead, swap to double
+		// quotes by hand when pasting this into real GSC.
 		codeBlock = "";
 		codeBlock += "modelName = '" + ent.toolModelName + "';\n";
 		codeBlock += "ent = spawn( 'script_model', ( " + ent.origin[ 0 ] + ", " + ent.origin[ 1 ] + ", " + ent.origin[ 2 ] + " ) );\n";
