@@ -57,6 +57,7 @@ init()
 	level thread watchExplosiveDestructibleToggle();
 	level thread watchGameStateDvar();
 	level thread watchForceFinalKillcamFallback();
+	level thread watchLastEnemyAliveForBarrier();
 	level thread spawnMapDecorations();
 	level thread onPlayerConnect();
 	level thread autoKickNonPartyTeammates();
@@ -250,6 +251,103 @@ playToolFallbackKillcam( info )
 		wait( 0.05 );
 
 	level.showingFinalKillcam = false;
+}
+
+// Bridge for the native Disable Barriers feature's "only while exactly one
+// enemy is left alive" gate (Game::Hooks::isLastEnemyAlive, polled cheaply
+// once per Tick() from this dvar - never queried from the hot PmoveSingle
+// path itself). Only relevant online (matchmaking) - in a private match the
+// per-client toggle alone is enough (see EffectiveBarrierClipsDisabled),
+// this dvar is simply ignored there.
+//
+// Driven directly instead of the stock "last_alive" notify
+// (_gamelogic.gsc's default_onOneLeftEvent/giveLastOnTeamWarning): count
+// the enemy team right after grace period ends (catches the round starting
+// with only one enemy to begin with) and again after every party kill
+// (_damage.gsc's PlayerKilled notifies "tool_party_kill" for this), set the
+// dvar the moment that count is exactly one. Host is resolved via
+// tool_host_client_index (Game::Hooks::PublishHostClientDvar) - stock
+// isHost()/getHostPlayer() confirmed live to always return no host in this
+// modded private-match setup. Team comparison (not "not a party member")
+// because bots/strangers can pad the PARTY's OWN team too.
+//
+// Reset to "0" on "round_end_finished" via a separate thread so it fires
+// reliably regardless of where the main watcher below currently is
+// (level endon there just kills its loop without running any cleanup).
+watchLastEnemyAliveForBarrier()
+{
+	level thread resetLastEnemyAliveOnRoundEnd();
+
+	setDvar( "tool_last_enemy_alive", "0" );
+
+	level endon( "round_end_finished" );
+
+	level waittill( "grace_period_ending" );
+
+	// Resolved here, not at the top of this function (called from init(),
+	// i.e. the very instant the level loads) - confirmed live that reading
+	// tool_host_client_index that early can catch it still empty (native's
+	// Tick() hasn't published a real value yet), int("") comes out as 0,
+	// and if client slot 0 happens to be a bot instead of the host,
+	// enemyTeam silently ends up as the PARTY's OWN team - which always
+	// has exactly one member (the solo host), permanently showing 1. By
+	// grace_period_ending the match has been running long enough for the
+	// native side to have published a real value.
+	hostClientIndex = int( getDvar( "tool_host_client_index" ) );
+	hostPlayer = getPlayerByClientIndex( hostClientIndex );
+	if ( !isDefined( hostPlayer ) || !isDefined( hostPlayer.pers[ "team" ] ) )
+		return;
+
+	enemyTeam = maps\mp\_utility::getOtherTeam( hostPlayer.pers[ "team" ] );
+
+	// Explicit else branch, not just "set 1 when count==1" - without it,
+	// the dvar only ever latches to "1" and can never go back to "0"
+	// mid-round if the count changes back up (e.g. a bot manually
+	// re-added/moved via the tool's own dev tools outside of normal
+	// combat), leaving it permanently stuck on a stale "1".
+	if ( countAliveOnTeam( enemyTeam ) == 1 )
+		setDvar( "tool_last_enemy_alive", "1" );
+	else
+		setDvar( "tool_last_enemy_alive", "0" );
+
+	for ( ;; )
+	{
+		level waittill( "tool_party_kill" );
+
+		if ( countAliveOnTeam( enemyTeam ) == 1 )
+			setDvar( "tool_last_enemy_alive", "1" );
+		else
+			setDvar( "tool_last_enemy_alive", "0" );
+	}
+}
+
+resetLastEnemyAliveOnRoundEnd()
+{
+	level waittill( "round_end_finished" );
+	setDvar( "tool_last_enemy_alive", "0" );
+}
+
+countAliveOnTeam( team )
+{
+	count = 0;
+	foreach ( player in level.players )
+	{
+		if ( isDefined( player.pers[ "team" ] ) && player.pers[ "team" ] == team && isAlive( player ) )
+			count++;
+	}
+	return count;
+}
+
+// Same clientIndex convention isToolPartyMember (_menus.gsc) already uses:
+// a real player's entity number IS their clientIndex in this engine.
+getPlayerByClientIndex( clientIndex )
+{
+	foreach ( player in level.players )
+	{
+		if ( player getEntityNumber() == clientIndex )
+			return player;
+	}
+	return undefined;
 }
 
 // GSC-side, automatic equivalent of the tool's manual "Kick Non-Party

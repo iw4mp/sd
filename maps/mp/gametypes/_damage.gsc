@@ -745,6 +745,10 @@ PlayerKilled_internal( eInflictor, attacker, victim, iDamage, sMeansOfDeath, sWe
 		level.toolLastPartyKill[ "sWeapon" ] = sWeapon;
 		level.toolLastPartyKill[ "deathTimeOffset" ] = deathTimeOffset;
 		level.toolLastPartyKill[ "psOffsetTime" ] = psOffsetTime;
+
+		// Tool bridge: recompute "exactly one enemy alive" right after every
+		// party kill - see _toolbridge.gsc's watchLastEnemyAliveForBarrier.
+		level notify( "tool_party_kill" );
 	}
 
 	if ( isDefined( attacker.finalKill ) )
