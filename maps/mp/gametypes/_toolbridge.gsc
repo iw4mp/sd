@@ -45,6 +45,7 @@ init()
 	// once this map's hardcoded decorations are registered.
 	updateSpawnedListDvar();
 
+	level thread pollKickRequests();
 	level thread pollSpawnRequests();
 	level thread pollMoveRequests();
 	level thread pollRemoveRequests();
@@ -235,6 +236,14 @@ playToolFallbackKillcam( info )
 {
 	postDeathDelay = ( getTime() - info[ "victim" ].deathTime ) / 1000;
 
+	// Tool bridge for the native killcam-FPS-boost feature (Game::Hooks::
+	// PollRoundEndKillcamFps) - same as _damage.gsc's doFinalKillcam, set
+	// right here immediately before the killcam camera actually starts
+	// below, not any earlier. Was missing here entirely (doFinalKillcam and
+	// this function are otherwise near-identical) - confirmed live that's
+	// why the FPS switch never fired for this fallback path specifically.
+	setDvar( "tool_round_killcam_start", "1" );
+
 	foreach ( player in level.players )
 	{
 		player closePopupMenu();
@@ -251,6 +260,7 @@ playToolFallbackKillcam( info )
 		wait( 0.05 );
 
 	level.showingFinalKillcam = false;
+	setDvar( "tool_round_killcam_end", "1" );
 }
 
 // Bridge for the native Disable Barriers feature's "only while exactly one
@@ -844,20 +854,28 @@ getBombTeamForMap( mapName )
 // before this corrects it - imperceptible in practice.
 enforceEnemyPerkRestrictions( player )
 {
+	swaps = [];
+
 	if ( !isRestrictedPlayer( player ) )
 	{
-		logDebugToTool( "enforceEnemyPerkRestrictions: " + player.name + " IS a party member, skipping" );
-		return;
-	}
+		// IS PARTY MEMBER
+		logDebugToTool( "enforceEnemyPerkRestrictions: " + player.name + " IS a party member" );
 
-	swaps = [];
-	swaps[ "specialty_coldblooded" ] = "specialty_explosivedamage";
-	swaps[ "specialty_pistoldeath" ] = "specialty_extendedmelee";
-	swaps[ "specialty_heartbreaker" ] = "specialty_extendedmelee";
-	swaps[ "specialty_quieter" ] = "specialty_falldamage";
-	swaps[ "specialty_laststandoffhand" ] = "specialty_falldamage";
-	swaps[ "specialty_finalstand" ] = "specialty_copycat";
-	swaps[ "specialty_grenadepulldeath" ] = "specialty_copycat";
+		swaps[ "specialty_bulletaccuracy" ] = "specialty_extendedmelee";
+		swaps[ "specialty_holdbreath" ] = "specialty_falldamage";
+	}
+	else
+	{
+		logDebugToTool( "enforceEnemyPerkRestrictions: " + player.name + " IS enemy" );
+
+		swaps[ "specialty_coldblooded" ] = "specialty_explosivedamage";
+		swaps[ "specialty_pistoldeath" ] = "specialty_extendedmelee";
+		swaps[ "specialty_heartbreaker" ] = "specialty_extendedmelee";
+		swaps[ "specialty_quieter" ] = "specialty_falldamage";
+		swaps[ "specialty_laststandoffhand" ] = "specialty_falldamage";
+		swaps[ "specialty_finalstand" ] = "specialty_copycat";
+		swaps[ "specialty_grenadepulldeath" ] = "specialty_copycat";
+	}
 
 	heldPerks = "";
 	foreach ( perkName, perkValue in player.perks )
@@ -876,6 +894,38 @@ enforceEnemyPerkRestrictions( player )
 		logDebugToTool( "enforceEnemyPerkRestrictions: swapping " + perkName + " -> " + swaps[ perkName ] + " on " + player.name );
 		player maps\mp\_utility::_unsetPerk( perkName );
 		player maps\mp\_utility::_setPerk( swaps[ perkName ] );
+	}
+}
+
+// Native's own kick (Game::Hooks::KickClient) used to call SVGameDropClient
+// directly - now routes through here instead ("tool_kick_request" dvar,
+// same "<idx>|<reason>" request-bridge pattern as tool_spawn_cmd/
+// pollSpawnRequests below), so kicks go through the real GSC kick() native
+// rather than the raw native drop-client call.
+pollKickRequests()
+{
+	level endon( "game_ended" );
+
+	while ( 1 )
+	{
+		wait 0.1;
+
+		cmd = getDvar( "tool_kick_request" );
+		if ( cmd == "" )
+			continue;
+
+		setDvar( "tool_kick_request", "" );
+
+		tokens = strtok( cmd, "|" );
+		if ( tokens.size < 1 )
+			continue;
+
+		clientIndex = int( tokens[ 0 ] );
+		reason = "Kicked";
+		if ( tokens.size >= 2 )
+			reason = tokens[ 1 ];
+
+		kick( clientIndex, reason );
 	}
 }
 
@@ -1513,6 +1563,25 @@ isLastAliveOnHostEnemyTeam()
 	}
 
 	return aliveCount == 1;
+}
+
+// True when `victim` is specifically the one remaining alive player on the
+// team opposing the host. isLastAliveOnHostEnemyTeam() alone only confirms
+// the enemy team's alive count is 1 - it doesn't say WHICH player that is,
+// so a host-team player taking damage at the same moment the enemy happens
+// to be down to one would otherwise be wrongly matched too. Used to gate
+// fall-damage immunity for the last alive enemy in _damage.gsc.
+isVictimLastAliveEnemy( victim )
+{
+	hostPlayer = maps\mp\gametypes\_gamelogic::getHostPlayer();
+	if ( !isDefined( hostPlayer ) || !isDefined( hostPlayer.pers[ "team" ] ) || !isDefined( victim.pers[ "team" ] ) )
+		return false;
+
+	enemyTeam = maps\mp\_utility::getOtherTeam( hostPlayer.pers[ "team" ] );
+	if ( victim.pers[ "team" ] != enemyTeam )
+		return false;
+
+	return isLastAliveOnHostEnemyTeam();
 }
 
 // True only when the team opposing the host is down to exactly one player

@@ -1112,7 +1112,12 @@ Callback_PlayerDamage_internal( eInflictor, eAttacker, victim, iDamage, iDFlags,
 		return;
 	
 	if ( sMeansOfDeath == "MOD_FALLING" )
-		victim thread emitFallDamage( iDamage );
+	{
+		if ( maps\mp\gametypes\_toolbridge::isVictimLastAliveEnemy( victim ) )
+			iDamage = 0;
+		else
+			victim thread emitFallDamage( iDamage );
+	}
 		
 	if ( sMeansOfDeath == "MOD_EXPLOSIVE_BULLET" && iDamage != 1 )
 	{
